@@ -227,9 +227,12 @@ There is also a Debian/Ubuntu-specific kit for a fully manual install:
    **black-page fix**; without it the driver prints solid-black pages.
 5. **A4, monochrome, 2-sided** are the supported options (the passthrough PPD is
    `ColorModel Gray` only, A4 default, `konica206-pdf-fullbleed.ppd`).
-6. **Package holds** (`apt-mark hold`): `legacy-printer-app`,
-   `libpappl-retrofit1`, `libpappl1t64`, `konica-minolta-245igdi-cups` — so a
-   release upgrade can't silently remove them.
+6. **Package holds — optional, not currently applied.** Holds on
+   `legacy-printer-app`, `libpappl-retrofit1`, `libpappl1t64`,
+   `konica-minolta-245igdi-cups` were tested during hardening but **removed at
+   the owner's request** (2026-08-16). They're unnecessary here: the driver is
+   apt-immune under `/usr/local` and the debs + driver tree are archived for
+   offline restore, so the packages can track distro updates normally.
 
 ### CUPS 3.0 outlook
 
