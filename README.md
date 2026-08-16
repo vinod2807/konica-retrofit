@@ -45,6 +45,20 @@ sudo ./install-konica-anylinux.sh --serial <SERIAL>
 If the distro ships CUPS 3.0 (no `lpadmin`), the script skips the CUPS queue and
 prints the raw IPP endpoint for GUI apps to use directly.
 
+**Fedora / RHEL specifics:** `legacy-printer-app` and `pappl-retrofit` are
+official Fedora packages (maintained by Red Hat's printing team), so the
+installer uses `dnf install legacy-printer-app pappl-retrofit` directly. Current
+Fedora ships CUPS 2.4.x with `libcups.so.2`, so the vendor driver and the
+classic fallback queue both work. Two caveats:
+
+- **SELinux (enforcing)** may deny the custom backend/filter running from
+  `/usr/local`. The installer prints guidance; a quick fix is
+  `sudo ausearch -m avc | audit2allow -M konica && sudo semodule -i konica.pp`
+  (or `sudo setenforce 0` to confirm the cause).
+- If a future Fedora release switches to CUPS 3.0, the classic queue breaks (as
+  designed) and the installer automatically exposes the raw IPP endpoint
+  (`http://localhost:8000/ipp/print/konica206uri`).
+
 > Restoring just the configuration on an already-set-up machine is covered in
 > §3; a full manual Debian/Ubuntu kit is under `backup/.../source/konica-debian13-setup/`.
 

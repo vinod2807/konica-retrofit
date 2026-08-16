@@ -141,7 +141,7 @@ install_pappl() {
     local deps
     case "$DISTRO" in
         debian)  deps="git cmake make gcc g++ pkg-config libcups2-dev libcupsfilters-dev libppd-dev libpappl1-dev libusb-1.0-0-dev libcupsimage2-dev";;
-        fedora)  deps="git cmake make gcc gcc-c++ pkgconfig libcups-devel libcupsfilters-devel libppd-devel pappl-devel libusbx-devel";;
+        fedora)  deps="git cmake make gcc gcc-c++ pkgconfig libcups-devel libcupsfilters-devel libppd-devel pappl-devel libusb1-devel";;
         arch)    deps="git cmake make gcc pkg-config cups libcupsfilters libppd pappl libusb";;
         opensuse)deps="git cmake make gcc gcc-c++ pkg-config libcups2-devel libcupsfilters-devel libppd-devel pappl-devel libusb-1_0-devel";;
         *)       warn "unknown distro for build deps; please install them manually";;
@@ -272,6 +272,20 @@ wait_for_app() {
 }
 
 # ---------------------------------------------------------------------------
+# Fedora/RHEL: SELinux (enforcing) can block custom binaries from /usr/local
+# ---------------------------------------------------------------------------
+check_selinux() {
+    [ "$DISTRO" = "fedora" ] || return 0
+    command -v getenforce >/dev/null 2>&1 || return 0
+    [ "$(getenforce 2>/dev/null)" = "Enforcing" ] || return 0
+    warn "SELinux is Enforcing. The custom backend and vendor filter run from"
+    warn "/usr/local and may be denied by the targeted policy (cupsd_t / initrc_t)."
+    warn "If the test print below fails or you see AVC denials (ausearch -m avc | tail):"
+    warn "  1) temporary permissive:      sudo setenforce 0"
+    warn "  2) proper policy module:      sudo ausearch -m avc | audit2allow -M konica && sudo semodule -i konica.pp"
+}
+
+# ---------------------------------------------------------------------------
 # 9. Create the PAPPL queue + CUPS passthrough queue
 # ---------------------------------------------------------------------------
 create_queues() {
@@ -340,6 +354,7 @@ main() {
     else
         warn "Printer Application did not come up; check journalctl -u legacy-printer-app"
     fi
+    check_selinux
     verify
 }
 main "$@"
