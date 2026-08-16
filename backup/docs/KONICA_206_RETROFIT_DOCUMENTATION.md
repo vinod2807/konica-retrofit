@@ -421,6 +421,26 @@ Three different libcups situations:
 - The Debian 13 kit installs the driver to `/usr/local` too, with all kit PPDs
   already repointed.
 
+## 8d. Portable installer + GitHub (2026-08-16)
+
+- The full setup (backup, docs, backend source, Debian 13 kit) is mirrored to
+  **https://github.com/vinod2807/konica-retrofit** (private).
+- Added **`install-konica-anylinux.sh`** at the repo root: a distro-agnostic
+  installer (Debian/Ubuntu/Fedora/Arch/openSUSE) that detects the distro,
+  installs pappl-retrofit (package → bundled debs → OpenPrinting source build),
+  auto-detects the printer serial via `lsusb`, installs the driver under
+  `/usr/local`, builds the chunked backend from source, creates the PAPPL +
+  CUPS queues, and verifies. Handles CUPS 3.0 (no `lpadmin`) by exposing the
+  raw IPP endpoint.
+- Verified end-to-end on this machine (re-run = idempotent; queue recreated,
+  backend discovery OK, CUPS default retained).
+- **Backup defect found & fixed while building the installer:** the driver tree
+  had been archived at `usr/local/lib/KonicaMinolta/...` (missing the `konica/`
+  wrapper level), which would not have matched the PPDs' `*OCM_resourceDir`
+  paths on restore; and three `.debs` (`legacy-printer-app`, `libpappl-retrofit1`,
+  `libpappl1t64`) had not been copied into `debs/`. Both corrected, manifest +
+  tarball regenerated (74 files, 0 checksum failures), repo re-synced.
+
 ---
 
 ## 9. Files & Artifacts

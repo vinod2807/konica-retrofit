@@ -51,6 +51,7 @@ Konica Minolta 206  (USB serial A8A6041029423, VID 132b / PID 232b, intf 1)
 
 ```
 README.md
+install-konica-anylinux.sh                    # distro-agnostic installer (Debian/Ubuntu/Fedora/Arch/openSUSE)
 backup/
 ├── konica-pappl-backup-20260816-1050.tar.gz     # single-file backup (6.9 MB)
 └── konica-pappl-backup-20260816-1050/           # same backup, extracted
@@ -135,17 +136,34 @@ sudo apt-get install -y ./libcups2t64_*.deb ./libcupsimage2t64_*.deb
 Then restore as in §3a (the `/usr/local/lib/konica` driver and the backend
 don't need any package).
 
-### 3c. Restore on a NEW machine (Debian 13 / fresh install)
+### 3c. Restore on a NEW machine (any glibc Linux — Debian/Ubuntu/Fedora/Arch/openSUSE)
 
-The included **Debian 13 kit** automates the whole thing:
+Use the **distro-agnostic installer** at the repo root. Clone the repo to the
+target, then:
 
 ```bash
-cd backup/.../source/konica-debian13-setup
-sudo ./scripts/setup-konica-debian13.sh
+git clone https://github.com/vinod2807/konica-retrofit
+cd konica-retrofit
+sudo ./install-konica-anylinux.sh            # autodetects the printer serial
+# or, if the printer's serial differs:
+sudo ./install-konica-anylinux.sh --serial <SERIAL>
 ```
 
-See `source/konica-debian13-setup/README-debian13.md` for details (including a
-source-build fallback if `legacy-printer-app` isn't in the distro repos).
+What it does automatically:
+- detects the distro and installs `legacy-printer-app` (pappl-retrofit) via its
+  package manager, the bundled `.debs`, or an OpenPrinting source build
+- detects the Konica 206 on USB (serial, interface 1)
+- installs the vendor driver under `/usr/local/lib/konica/...` (apt-immune)
+- builds the chunked USB backend from `source/` with `gcc` + `libusb-1.0`
+- installs PPDs, the systemd drop-in, and the persistence helper
+- creates the PAPPL queue `konica206uri` and the CUPS passthrough queue, sets
+  A4 + system default, and verifies
+
+> If the distro ships **CUPS 3.0** (no `lpadmin`/PPD support), the script skips
+> the CUPS passthrough queue and prints the raw IPP endpoint to point GUI apps at.
+
+There is also a Debian/Ubuntu-specific kit for a fully manual install:
+`backup/.../source/konica-debian13-setup/` (see its `README-debian13.md`).
 
 ---
 
@@ -209,7 +227,7 @@ source-build fallback if `legacy-printer-app` isn't in the distro repos).
 | Classic USB backend (pristine) | `1ebbe1e68d3f1ffbab2cc0f5a0dc2c0c8393dcb3ea47df74416e73147947dc3f` |
 | Vendor driver `245igdirf` (pristine) | `0faf0a69aa772805423a9c4c1e5bb20f74d0bf43daeee676d4fa7c658377380d` |
 | Custom chunked backend binary | `d76e61bc...` (see backup `SHA256SUMS`) |
-| Backup tarball | `c903c546afa1e43187dce1145afb9480fd5b96542ebc171748a63f4c481c0e47` |
+| Backup tarball | `ffd619371c0f685a57efbf6502446c358da45b665938bec3d1f9c83676affda8` |
 
 Every file in `backup/konica-pappl-backup-20260816-1050/` is covered by its own
 `SHA256SUMS` manifest (verified on capture).
