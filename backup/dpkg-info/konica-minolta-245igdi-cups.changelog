@@ -1,0 +1,10 @@
+konica-minolta-245igdi-cups (2.01-0) experimental; urgency=low
+   
+  - First release (2018/12/4)
+  - Add duplex print function (2021/12/10)
+  - Modified Media Type (2021/12/17)
+  - Modified duplex print odd page will crash (2022/01/03)
+  - Add 245i model (2022/10/24)
+  - Change Name from 225i to 245i (2023/01/18)
+
+ -- root <root@dockerbox>  Wed, 18 Jan 2023 02:07:55 +0000

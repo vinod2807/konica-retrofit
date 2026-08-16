@@ -1,0 +1,19 @@
+=== lpstat -p ===
+printer EPSON_L3260 is idle.  enabled since Fri 07 Aug 2026 08:22:36 AM IST
+printer konica206uri is idle.  enabled since Sun 16 Aug 2026 10:38:52 AM IST
+printer KONICA_MINOLTA_206 is idle.  enabled since Sun 16 Aug 2026 09:57:45 AM IST
+
+=== lpstat -d ===
+system default destination: konica206uri
+
+=== lpoptions ===
+PageSize/Media Size: *A4 Letter
+Duplexer/Duplex Unit: *true false
+Duplex/Double Sides: None *DuplexNoTumble DuplexTumble
+ColorModel/Color Model: *Gray
+
+=== legacy-printer-app printers ===
+konica206uri
+
+=== device uri ===
+uri="cups:usb://KONICA%20MINOLTA/206?serial=A8A6041029423&interface=1"

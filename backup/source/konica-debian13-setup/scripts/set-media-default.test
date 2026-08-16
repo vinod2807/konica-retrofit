@@ -1,0 +1,11 @@
+{
+  VERSION 2.0
+  OPERATION Set-Printer-Attributes
+  GROUP operation-attributes-tag
+  ATTR charset attributes-charset utf-8
+  ATTR naturalLanguage attributes-natural-language en
+  ATTR uri printer-uri $uri
+  GROUP printer-attributes-tag
+  ATTR keyword media-default iso_a4_210x297mm
+  STATUS successful-ok
+}

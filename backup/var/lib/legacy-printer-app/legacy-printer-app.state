@@ -1,0 +1,71 @@
+DNSSDName CUPS Driver Retro-Fit Printer Application
+Contact
+DefaultPrinterID 1
+MaxImageSize 1073741824 16384 16384
+NextPrinterID 6
+UUID urn:uuid:a3aa22b2-abfa-3768-458a-ad810807c1f7
+<Printer did="" driver="konica-minolta--206--full-bleed-retrofit-en" id="5" name="konica206uri" state="3" uri="cups:usb://KONICA%20MINOLTA/206?serial=A8A6041029423&interface=1">
+DNSSDName konica206uri
+Contact
+MaxActiveJobs 0
+MaxCompletedJobs 100
+NextJobId 26
+ImpressionsCompleted 0
+identify-actions-default sound
+media-col-default bottom="423" left="141" length="29700" name="iso_a4_210x297mm" right="141" source="auto" top="423" type="plain" width="21000"
+media-col-ready0 bottom="423" left="141" length="27940" name="na_letter_8.5x11in" right="141" source="auto" top="423" type="plain" width="21590"
+media-col-ready1 bottom="423" left="141" length="27940" name="na_letter_8.5x11in" right="141" source="tray-1" top="423" type="plain" width="21590"
+media-col-ready2 bottom="423" left="141" length="27940" name="na_letter_8.5x11in" right="141" source="tray-2" top="423" type="plain" width="21590"
+media-col-ready3 bottom="423" left="141" length="27940" name="na_letter_8.5x11in" right="141" source="tray-3" top="423" type="plain" width="21590"
+media-col-ready4 bottom="423" left="141" length="27940" name="na_letter_8.5x11in" right="141" source="tray-4" top="423" type="plain" width="21590"
+media-col-ready5 bottom="423" left="141" length="27940" name="na_letter_8.5x11in" right="141" source="tray-5" top="423" type="plain" width="21590"
+media-col-ready6 bottom="423" left="141" length="27940" name="na_letter_8.5x11in" right="141" source="bypass" top="423" type="plain" width="21590"
+orientation-requested-default none
+print-color-mode-default monochrome
+print-content-optimize-default auto
+print-quality-default normal
+print-scaling-default auto
+printer-resolution-default 600x600dpi
+sides-default two-sided-long-edge
+bypass-default installed
+trays-default not-installed
+collate-default on
+output-method-default print
+duplex-unit-default installed
+password-digit-1-default 0
+password-digit-2-default 0
+password-digit-3-default 0
+password-digit-4-default 0
+account-track-default off
+department-name-digit-1-default 0
+department-name-digit-2-default 0
+department-name-digit-3-default 1
+brightness-default 0
+contrast-default 0
+toner-save-default automatic-selection
+Job completed="1786856931" created="1786856928" format="application/pdf" id="25" impressions="1" name="twopage.pdf" processing="1786856928" state="9" username="vinod"
+Job completed="1786856143" created="1786856142" format="application/pdf" id="24" impressions="1" name="RENTAL AGREEMENT.docx" processing="1786856142" state="9" username="vinod"
+Job completed="1786855688" created="1786855682" format="application/pdf" id="23" impressions="1" name="6206609143.pdf" processing="1786855682" state="9" username="vinod"
+Job completed="1786855449" created="1786855445" format="application/pdf" id="22" impressions="1" name="twopage.pdf" processing="1786855445" state="9" username="vinod"
+Job completed="1786855378" created="1786855375" format="application/pdf" id="21" impressions="1" name="dense-a4.pdf" processing="1786855375" state="9" username="vinod"
+Job completed="1786854672" created="1786854570" format="application/pdf" id="20" impressions="1" name="dense-a4.pdf" processing="1786854571" state="8" username="vinod"
+Job completed="1786854404" created="1786853981" format="application/pdf" id="19" impressions="1" name="dense-a4.pdf" processing="1786853981" state="7" username="vinod"
+Job completed="1786853693" created="1786853690" format="application/pdf" id="18" impressions="1" name="dense-a4.pdf" processing="1786853690" state="9" username="vinod"
+Job completed="1786853610" created="1786853443" format="application/pdf" id="17" impressions="1" name="dense-a4.pdf" processing="1786853443" state="7" username="vinod"
+Job completed="1786853008" created="1786852893" format="application/pdf" id="16" impressions="1" name="dense-a4.pdf" processing="1786852893" state="8" username="vinod"
+Job completed="1786852730" created="1786852727" format="application/pdf" id="15" impressions="1" name="dense-a4.pdf" processing="1786852728" state="9" username="vinod"
+Job completed="1786852575" created="1786852307" format="application/pdf" id="14" impressions="1" name="dense-a4.pdf" processing="1786852307" state="7" username="vinod"
+Job completed="1786852123" created="1786852122" format="application/pdf" id="13" impressions="1" name="dense.pdf" processing="1786852122" state="9" username="vinod"
+Job completed="1786852057" created="1786851990" format="application/pdf" id="12" impressions="1" name="6206609143.pdf" processing="1786851990" state="8" username="vinod"
+Job completed="1786851930" created="1786851929" format="application/pdf" id="11" impressions="1" name="twopage.pdf" processing="1786851929" state="9" username="vinod"
+Job completed="1786851882" created="1786851824" format="application/pdf" id="10" impressions="1" name="6206609143.pdf" processing="1786851824" state="7" username="vinod"
+Job completed="1786851798" created="1786851782" format="application/pdf" id="9" impressions="1" name="twopage.pdf" processing="1786851782" state="9" username="vinod"
+Job completed="1786851676" created="1786851618" format="application/pdf" id="8" name="6206609143.pdf" state="7" username="vinod"
+Job completed="1786851770" created="1786851449" format="application/pdf" id="7" impressions="1" name="6206609143.pdf" processing="1786851449" state="7" username="vinod"
+Job completed="1786851360" created="1786851359" format="application/pdf" id="6" impressions="1" name="twopage.pdf" processing="1786851359" state="9" username="vinod"
+Job completed="1786851310" created="1786851308" format="application/pdf" id="5" impressions="1" name="twopage.pdf" processing="1786851308" state="9" username="vinod"
+Job completed="1786851019" created="1786851017" format="application/pdf" id="4" impressions="1" name="twopage.pdf" processing="1786851017" state="9" username="vinod"
+Job completed="1786850679" created="1786850667" format="application/pdf" id="3" impressions="1" name="real.pdf" processing="1786850678" state="8" username="vinod"
+Job completed="1786850678" created="1786850591" format="application/pdf" id="2" impressions="1" name="neutral-name.pdf" processing="1786850591" state="7" username="vinod"
+Job completed="1786850499" created="1786850497" format="application/pdf" id="1" impressions="1" name="twopage.pdf" processing="1786850497" state="9" username="vinod"
+</Printer>
