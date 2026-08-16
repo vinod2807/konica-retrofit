@@ -9,6 +9,47 @@ Captured: **2026-08-16**. This repository is a mirror of the local backup at
 
 ---
 
+## 0. Quick start — the installer
+
+The one-click, distro-agnostic installer is at the **root of this repository**:
+
+- **`install-konica-anylinux.sh`**
+- On GitHub: `https://github.com/vinod2807/konica-retrofit` (root), or direct
+  download:
+  `https://raw.githubusercontent.com/vinod2807/konica-retrofit/main/install-konica-anylinux.sh`
+
+**How to use it on a fresh Linux machine** (Debian/Ubuntu, Fedora/RHEL, Arch,
+openSUSE — any glibc Linux with bash, gcc, and libusb-1.0):
+
+```bash
+git clone https://github.com/vinod2807/konica-retrofit
+cd konica-retrofit
+sudo ./install-konica-anylinux.sh
+```
+
+The script will:
+- detect the distro and install `legacy-printer-app` (pappl-retrofit) — via its
+  package manager, the bundled `.debs`, or an OpenPrinting source build
+- auto-detect your printer's serial number on USB (`lsusb`)
+- install the vendor driver under `/usr/local` (apt-immune)
+- build the chunked USB backend from source (`gcc` + `libusb-1.0`)
+- install the PPDs, systemd drop-in, and persistence helper
+- create the PAPPL queue `konica206uri` + CUPS passthrough queue, set A4 and
+  the system default, then verify
+
+If your printer's serial differs, pass it explicitly:
+```bash
+sudo ./install-konica-anylinux.sh --serial <SERIAL>
+```
+
+If the distro ships CUPS 3.0 (no `lpadmin`), the script skips the CUPS queue and
+prints the raw IPP endpoint for GUI apps to use directly.
+
+> Restoring just the configuration on an already-set-up machine is covered in
+> §3; a full manual Debian/Ubuntu kit is under `backup/.../source/konica-debian13-setup/`.
+
+---
+
 ## 1. What this setup is
 
 Two independent printing queues that both drive the same physical printer over
