@@ -36,7 +36,7 @@
 *%==========================================================================*%
 *%                            CUPS keywords                                 *%
 *%==========================================================================*%
-*cupsFilter: "application/vnd.cups-raster 0 /usr/lib/cups/filter/KonicaMinolta/245igdi/Filters/245igdirf"
+*cupsFilter: "application/vnd.cups-raster 0 /usr/local/lib/konica/KonicaMinolta/245igdi/Filters/245igdirf"
 
 *cupsModelNumber: 0001
 
