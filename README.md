@@ -261,6 +261,10 @@ There is also a Debian/Ubuntu-specific kit for a fully manual install:
 - The single migration item at distro transition time: upgrade
   `legacy-printer-app` to a newer pappl-retrofit build linked against the
   libcups3/libppd/libcupsfilters stack (a normal package migration).
+- **`245igdirf`'s libcups2 dependency is now closed, not just documented**
+  (see §5.1). The installer vendors `libcups.so.2` + `libcupsimage.so.2`
+  privately via `patchelf --set-rpath`, so the driver no longer cares what
+  CUPS version the host ships, on any distro.
 
 ---
 
@@ -271,9 +275,57 @@ There is also a Debian/Ubuntu-specific kit for a fully manual install:
   classic queue for those, and power-cycle the printer to recover from a wedge.
 - The classic queue doesn't survive CUPS 3.0 (by design; keep it only as a
   fallback on CUPS 2.x systems).
-- The vendor driver `245igdirf` links `libcups.so.2`, so if the distro ever
-  removes `libcups2` entirely the driver must run under a libcups2-compat
-  environment or be replaced (the archived `libcups2t64` deb covers reinstalls).
+
+### 5.1 `245igdirf`'s libcups2 dependency — solved via vendoring (2026-08-18)
+
+The closed-source vendor binary `245igdirf` is hard-linked against the
+**classic** `libcups.so.2` + `libcupsimage.so.2` ABI and will never be ported
+to libcups3 (no source, vendor-abandoned). Previously this was an open risk:
+if a distro ever dropped libcups2 entirely, the driver would stop working
+with no fix available short of replacing it.
+
+`install-konica-anylinux.sh` now closes this automatically
+(`vendor_libcups()`, called from `install_driver()`): it copies
+`libcups.so.2` + `libcupsimage.so.2` into a private directory
+(`/usr/local/lib/konica/lib/`) and uses `patchelf --set-rpath` to point
+`245igdirf` at that private copy instead of the system one. The driver is
+then permanently immune to whatever CUPS the host ships, on any distro,
+forever — the same pattern already used to relocate the driver tree itself
+out of `apt`'s reach (§4.3).
+
+Two libraries needed vendoring, not one — `245igdirf` links both
+`libcups.so.2` **and** `libcupsimage.so.2`; vendoring only the former leaves
+the latter still resolving from the system path.
+
+Where the libraries come from depends on distro:
+- **Debian/Ubuntu**: extracted from this repo's archived, version-pinned
+  `debs/libcups2t64_*.deb` + `debs/libcupsimage2t64_*.deb` via `dpkg-deb -x`.
+- **Arch / Fedora / openSUSE (or Debian without the bundled `.deb`s)**: copied
+  directly from whatever the host currently has installed (checks
+  `/usr/lib`, `/usr/lib64`, `/usr/lib/x86_64-linux-gnu`, `/lib`, `/lib64`,
+  falling back to `ldconfig -p`). This is a **snapshot of the live system's
+  libs, not a pinned archived version** — worth knowing if a future
+  regression needs bisecting.
+
+Applied and verified on both machines this repo tracks:
+- **Ubuntu 26.04**: real, present risk at time of patching — `konica-minolta-245igdi-cups`
+  was already gone from Ubuntu's repos and the driver already relocated to
+  `/usr/local` out of necessity (§4.3). Vendoring closes an active gap.
+- **Arch Linux**: `libcups`/`libcupsimage` were still current, live, and
+  `pacman`-tracked at time of patching (Arch hasn't split or deprecated the
+  classic ABI the way Ubuntu has) — so this was **preventive hardening**, not
+  a fix for something broken. The vendor binary on this machine lives at
+  `/usr/lib/cups/filter/KonicaMinolta/245igdi/Filters/245igdirf` (not under
+  `/usr/local` — unowned by any pacman package, confirmed via `pacman -Qo`),
+  a different layout than Ubuntu's `/usr/local/lib/konica/...` retrofit tree.
+  Patched in place with `patchelf`; confirmed via `ldd` and a real duplex
+  print job.
+
+One caveat this doesn't change: the vendored libs stop tracking security
+updates once copied (they're outside `apt`/`pacman`'s management by design —
+that's the whole point). Re-run the installer's `vendor_libcups()` step (or
+delete `/usr/local/lib/konica/lib/` and re-run the installer) to refresh
+them from a newer system/archived copy if that's ever a concern.
 
 ---
 
