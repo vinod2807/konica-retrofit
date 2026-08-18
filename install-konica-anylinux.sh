@@ -192,6 +192,14 @@ install_driver() {
     cp -r "$BK/usr/local/lib/konica/KonicaMinolta/245igdi" "$DRIVER_HOME"
     chmod 755 "$DRIVER_HOME/Filters/245igdirf"
 
+    # 245igdirf resolves <basename>.ocm relative to its own directory.
+    # Make the OCM configuration resolvable from both the relocated driver
+    # tree and the legacy /usr/lib/cups/filter path used by CUPS/PAPPL.
+    ln -sf "$DRIVER_HOME/Filters/mtorf.ocm"         "$DRIVER_HOME/Filters/245igdirf.ocm"
+    if [ -d /usr/lib/cups/filter/KonicaMinolta/245igdi/Filters ]; then
+        ln -sf "$DRIVER_HOME/Filters/mtorf.ocm"             /usr/lib/cups/filter/KonicaMinolta/245igdi/Filters/245igdirf.ocm
+    fi
+
     vendor_libcups
 }
 
@@ -520,9 +528,11 @@ create_queues() {
 
     if command -v lpadmin >/dev/null 2>&1; then
         log "Creating the CUPS passthrough queue for GUI apps..."
+        # PPD-less IPP queue: legacy-printer-app is the Printer Application
+        # and supplies printer capabilities over IPP. This also avoids making
+        # the passthrough queue depend on the classic PPD model removed by CUPS 3.
         lpadmin -p "$PRINTER_NAME" \
-            -v "ipp://localhost:8000/ipp/print/$PRINTER_NAME" \
-            -P "$PAPPL_PPD_DIR/konica206-pdf-fullbleed.ppd" -E
+            -v "ipp://localhost:8000/ipp/print/$PRINTER_NAME" -E
         lpadmin -d "$PRINTER_NAME"
         lpoptions -d "$PRINTER_NAME" 2>/dev/null || true
         systemctl restart cups 2>/dev/null || true
