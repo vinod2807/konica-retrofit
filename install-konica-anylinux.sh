@@ -170,11 +170,105 @@ install_driver() {
     cp -r "$BK/usr/local/lib/konica/KonicaMinolta/245igdi" "$DRIVER_HOME"
     chmod 755 "$DRIVER_HOME/Filters/245igdirf"
 
-    # The vendor binary links libcups.so.2; warn if it is missing here.
+    vendor_libcups
+}
+
+# ---------------------------------------------------------------------------
+# 5b. Vendor libcups.so.2 + libcupsimage.so.2 for the closed-source 245igdirf
+#     binary (apt-immune, same pattern as the driver relocation). This is the
+#     libcups3/CUPS-3.0 workaround: the vendor binary is hard-linked against
+#     the CLASSIC libcups.so.2 ABI and will never be ported. CUPS 3.0 removes
+#     libcups2 from the distro but does NOT prevent it from coexisting
+#     privately (different SONAME than libcups3), so we extract libcups2 +
+#     libcupsimage2 from the archived .debs into a private lib dir and point
+#     245igdirf at it via patchelf --set-rpath. This makes the driver
+#     immune to the host's libcups version forever, closing the one real
+#     unresolved risk in this setup.
+# ---------------------------------------------------------------------------
+vendor_libcups() {
+    local bin="$DRIVER_HOME/Filters/245igdirf"
+    local libdir="/usr/local/lib/konica/lib"
+    local cups_deb="$BK/debs/libcups2t64_2.4.16-1ubuntu1.3_amd64.deb"
+    local cupsimage_deb="$BK/debs/libcupsimage2t64_2.4.16-1ubuntu1.3_amd64.deb"
+
+    if [ -f "$libdir/libcups.so.2" ] && [ -f "$libdir/libcupsimage.so.2" ]; then
+        log "Vendored libcups already present at $libdir; skipping re-extract."
+    else
+        log "Vendoring libcups.so.2 + libcupsimage.so.2 (CUPS-3.0-proofing 245igdirf)..."
+        install -d "$libdir"
+
+        if [ "$DISTRO" = "debian" ] && [ -f "$cups_deb" ] && [ -f "$cupsimage_deb" ]; then
+            # Debian/Ubuntu: extract from the archived .debs (these preserve
+            # the exact pinned version this repo was built/tested against).
+            command -v dpkg-deb >/dev/null 2>&1 || install_pkgs dpkg
+            local tmp; tmp="$(mktemp -d)"
+            dpkg-deb -x "$cups_deb" "$tmp"
+            dpkg-deb -x "$cupsimage_deb" "$tmp"
+            local libarch
+            libarch="$(find "$tmp/usr/lib" -maxdepth 1 -type d -name '*-linux-gnu*' | head -n1)"
+            [ -n "$libarch" ] || libarch="$tmp/usr/lib/x86_64-linux-gnu"
+            cp -a "$libarch"/libcups.so.2* "$libdir/" 2>/dev/null || die "libcups.so.2 not found in $cups_deb"
+            cp -a "$libarch"/libcupsimage.so.2* "$libdir/" 2>/dev/null || die "libcupsimage.so.2 not found in $cupsimage_deb"
+            rm -rf "$tmp"
+        else
+            # Non-Debian (Arch, Fedora, openSUSE) or no bundled .debs: no
+            # archived copy to extract from, so vendor straight from THIS
+            # machine's currently-installed libcups (e.g. Arch's own
+            # `libcups` package, which at install time is still live and
+            # pacman-tracked — see konica-retrofit README Arch addendum).
+            # This is a snapshot of "whatever the host has right now", not a
+            # pinned version, which is the best available source on distros
+            # that don't ship an archived classic-ABI package in this repo.
+            local src=""
+            for d in /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu /lib /lib64; do
+                if [ -f "$d/libcups.so.2" ] && [ -f "$d/libcupsimage.so.2" ]; then
+                    src="$d"; break
+                fi
+            done
+            if [ -z "$src" ] && command -v ldconfig >/dev/null 2>&1; then
+                src="$(ldconfig -p 2>/dev/null | awk '/libcups\.so\.2 /{print $NF; exit}' | xargs dirname 2>/dev/null)"
+            fi
+            [ -n "$src" ] || die "libcups.so.2/libcupsimage.so.2 not found anywhere on this system — install the distro's classic libcups package first (e.g. 'pacman -S libcups'), or supply them manually in $libdir"
+            cp -a "$src/libcups.so.2"* "$libdir/" || die "failed copying libcups.so.2 from $src"
+            cp -a "$src/libcupsimage.so.2"* "$libdir/" || die "failed copying libcupsimage.so.2 from $src"
+            log "Vendored from live system libs at $src (not a pinned archive — see README caveat)."
+        fi
+    fi
+
+    if ! command -v patchelf >/dev/null 2>&1; then
+        install_pkgs patchelf || warn "could not install patchelf; falling back to a wrapper script"
+    fi
+
+    if command -v patchelf >/dev/null 2>&1; then
+        patchelf --set-rpath "$libdir" "$bin" \
+            || die "patchelf failed to set rpath on $bin"
+        log "245igdirf now privately linked to $libdir (host libcups version no longer matters)."
+    else
+        # Fallback: wrap the binary instead of patching it. Rename the real
+        # binary aside once, install a shim in its place that sets
+        # LD_LIBRARY_PATH and execs it. Idempotent (checks for .real first).
+        if [ ! -f "${bin}.real" ]; then
+            mv "$bin" "${bin}.real"
+            cat > "$bin" <<EOF
+#!/bin/sh
+# Auto-generated wrapper: points 245igdirf at its private, vendored
+# libcups.so.2 / libcupsimage.so.2 so it survives CUPS 3.0's libcups3-only
+# host libraries. See vendor_libcups() in install-konica-anylinux.sh.
+LD_LIBRARY_PATH="$libdir\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}" exec "${bin}.real" "\$@"
+EOF
+            chmod 755 "$bin" "${bin}.real"
+        fi
+        log "245igdirf wrapped with LD_LIBRARY_PATH=$libdir (patchelf unavailable)."
+    fi
+
+    # Final check: the binary must now resolve libcups.so.2 + libcupsimage.so.2
+    # from the private dir, independent of whatever CUPS the host ships.
     if command -v ldd >/dev/null 2>&1; then
-        if ! ldd "$DRIVER_HOME/Filters/245igdirf" 2>/dev/null | grep -q "libcups.so.2"; then
-            warn "245igdirf cannot see libcups.so.2 on this system — rendering will fail"
-            warn "until a libcups2-compat package is installed."
+        local real_bin="$bin"; [ -f "${bin}.real" ] && real_bin="${bin}.real"
+        if ! LD_LIBRARY_PATH="$libdir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+                ldd "$real_bin" 2>/dev/null | grep -q "libcups.so.2 => $libdir"; then
+            warn "Could not confirm 245igdirf resolves libcups.so.2 from $libdir."
+            warn "Run: ldd $real_bin | grep libcups   — and check the rpath/wrapper manually."
         fi
     fi
 }
