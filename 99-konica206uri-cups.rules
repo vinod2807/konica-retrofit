@@ -1,0 +1,7 @@
+# Hold/release CUPS queues for the Konica Minolta 206i (USB).
+# Match on ENV{PRODUCT} (kernel-provided) because ID_VENDOR_ID/ID_MODEL_ID
+# and ATTR{} are NOT available on remove events.
+# Printer OFF (device removed)  -> disable queues (jobs stay queued)
+# Printer ON  (device added)    -> enable queues  (jobs print)
+ACTION=="add",    SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{PRODUCT}=="132b/232b/100", RUN+="/usr/local/bin/konica-cups-watch.sh add"
+ACTION=="remove", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{PRODUCT}=="132b/232b/100", RUN+="/usr/local/bin/konica-cups-watch.sh remove"

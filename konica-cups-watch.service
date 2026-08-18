@@ -1,0 +1,13 @@
+[Unit]
+Description=Sync Konica 206i CUPS queue with USB presence
+After=cups.service udev-settle.service
+Wants=cups.service
+ConditionPathExists=/usr/local/bin/konica-cups-watch.sh
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/konica-cups-watch.sh check
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
