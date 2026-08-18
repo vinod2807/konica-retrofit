@@ -529,11 +529,44 @@ create_queues() {
 
     if command -v lpadmin >/dev/null 2>&1; then
         log "Creating the CUPS passthrough queue for GUI apps..."
-        # PPD-less IPP queue: legacy-printer-app is the Printer Application
-        # and supplies printer capabilities over IPP. This also avoids making
-        # the passthrough queue depend on the classic PPD model removed by CUPS 3.
-        lpadmin -p "$PRINTER_NAME" \
-            -v "ipp://localhost:8000/ipp/print/$PRINTER_NAME" -E
+        # Preferred: generate a driverless PPD from the Printer Application so
+        # the queue advertises ALL media sizes to GUI apps (LibreOffice/WPS
+        # read the queue's PPD; a PPD-less queue shows no sizes at all).
+        # Fall back to a PPD-less IPP queue when the driverless tool is
+        # unavailable -- that is exactly the model CUPS 3.0 uses.
+        DRIVERLESS_PPD="$MEDIA_TEST_DIR/${PRINTER_NAME}-driverless.ppd"
+        DRIVERLESS_TOOL=""
+        for t in driverless /usr/lib/cups/driver/driverless \
+                 /usr/libexec/cups/driver/driverless; do
+            if command -v "$t" >/dev/null 2>&1; then
+                DRIVERLESS_TOOL="$t"
+                break
+            fi
+        done
+
+        if [ -n "$DRIVERLESS_TOOL" ]; then
+            log "Generating driverless PPD from the Printer Application..."
+            if "$DRIVERLESS_TOOL" "ipp://localhost:8000/ipp/print/$PRINTER_NAME" \
+                    > "$DRIVERLESS_PPD" 2>/dev/null && \
+               grep -q '^\*PageSize' "$DRIVERLESS_PPD" 2>/dev/null; then
+                log "Attaching driverless PPD (all media sizes) to $PRINTER_NAME"
+                lpadmin -p "$PRINTER_NAME" \
+                    -v "ipp://localhost:8000/ipp/print/$PRINTER_NAME" \
+                    -P "$DRIVERLESS_PPD" -E || {
+                    warn "lpadmin -P failed; falling back to PPD-less queue"
+                    lpadmin -p "$PRINTER_NAME" \
+                        -v "ipp://localhost:8000/ipp/print/$PRINTER_NAME" -E
+                }
+            else
+                warn "driverless PPD generation failed; using PPD-less queue"
+                lpadmin -p "$PRINTER_NAME" \
+                    -v "ipp://localhost:8000/ipp/print/$PRINTER_NAME" -E
+            fi
+        else
+            warn "driverless tool not found; using PPD-less queue"
+            lpadmin -p "$PRINTER_NAME" \
+                -v "ipp://localhost:8000/ipp/print/$PRINTER_NAME" -E
+        fi
         lpadmin -d "$PRINTER_NAME"
         lpoptions -d "$PRINTER_NAME" 2>/dev/null || true
         systemctl restart cups 2>/dev/null || true

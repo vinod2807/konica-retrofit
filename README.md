@@ -230,8 +230,9 @@ What it does automatically:
 - installs the vendor driver under `/usr/local/lib/konica/...` (apt-immune)
 - builds the chunked USB backend from `source/` with `gcc` + `libusb-1.0`
 - installs PPDs, the systemd drop-in, and the persistence helper
-- creates the PAPPL queue `konica206uri` and the CUPS passthrough queue, sets
-  A4 + system default, and verifies
+- creates the PAPPL queue `konica206uri` and the CUPS passthrough queue (with a
+  driverless PPD so all media sizes are visible in GUI apps), sets A4 + system
+  default, and verifies
 
 > If the distro ships **CUPS 3.0** (no `lpadmin`/PPD support), the script skips
 > the CUPS passthrough queue and prints the raw IPP endpoint to point GUI apps at.
@@ -258,8 +259,12 @@ There is also a Debian/Ubuntu-specific kit for a fully manual install:
    `konica-minolta-245igdi-cups` package (already absent from current repos).
 4. **`*DefaultOCM_TonerSave: TRUE`** in both retrofit PPDs — this was the
    **black-page fix**; without it the driver prints solid-black pages.
-5. **A4, monochrome, 2-sided** are the supported options (the passthrough PPD is
-   `ColorModel Gray` only, A4 default, `konica206-pdf-fullbleed.ppd`).
+5. **A4 default, monochrome, 2-sided** are the defaults. The CUPS passthrough
+   queue now uses a **driverless PPD** generated from the Printer Application
+   (`driverless ipp://localhost:8000/...`), so GUI apps see **all** media sizes
+   the printer app supports (A3–A6, B4–B6, Letter, Legal, envelopes, ...), not
+   just A4. The internal `konica206-pdf-fullbleed.ppd` is only used as the
+   Printer Application's own PDF driver, not as the CUPS-facing PPD.
 6. **Package holds — optional, not currently applied.** Holds on
    `legacy-printer-app`, `libpappl-retrofit1`, `libpappl1t64`,
    `konica-minolta-245igdi-cups` were tested during hardening but **removed at
