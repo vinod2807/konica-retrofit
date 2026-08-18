@@ -4,8 +4,10 @@ Complete, self-contained backup and restore kit for the permanent dual-queue
 printing setup for the **Konica Minolta 206** GDI laser printer on this
 machine (Ubuntu 26.04, `legacy-printer-app` 1.0~b2-0ubuntu8, CUPS 2.4.16).
 
-Captured: **2026-08-16**. This repository is a mirror of the local backup at
-`/home/vinod/konica-pappl-backup-20260816-1050/` plus this documentation.
+Captured: **2026-08-18**. The repository retains the 2026-08-16 snapshot as a
+historical reference, and now includes the current **Option A** recovery snapshot
+from the working Arch Linux system at:
+`/home/vinod/konica-pappl-backup-20260818-1532/`.
 
 ---
 
@@ -108,8 +110,10 @@ Konica Minolta 206  (USB serial A8A6041029423, VID 132b / PID 232b, intf 1)
 README.md
 install-konica-anylinux.sh                    # distro-agnostic installer (Debian/Ubuntu/Fedora/Arch/openSUSE)
 backup/
-├── konica-pappl-backup-20260816-1050.tar.gz     # single-file backup (6.9 MB)
-└── konica-pappl-backup-20260816-1050/           # same backup, extracted
+├── konica-pappl-backup-20260818-1532.tar.gz     # current Option A restore snapshot (3.6 MB)
+├── konica-pappl-backup-20260818-1532/            # same current snapshot, extracted
+├── konica-pappl-backup-20260816-1050.tar.gz     # historical snapshot
+└── (historical 2026-08-16 extracted snapshot at backup root)
     ├── SHA256SUMS                               # checksums of every file (verified)
     ├── queue-snapshot.txt                       # lpstat/lpoptions/URI snapshot
     ├── etc/
@@ -146,6 +150,21 @@ backup/
 
 ---
 
+## Current Option A recovery snapshot (2026-08-18)
+
+The current recovery snapshot was captured after the `patchelf`/vendored-CUPS
+change was tested with a successful duplex print on Arch Linux. It contains:
+
+- patched `245igdirf`: SHA-256 `0548f3f3e20fae1e604e3bbe5464aedf5fbd8ff283f8173359f56153ce98a4d3`
+- pristine vendor `245igdirf.pristine`: SHA-256 `0faf0a69aa772805423a9c4c1e5bb20f74d0bf43daeee676d4fa7c658377380d`
+- private `libcups.so.2` and `libcupsimage.so.2` under `/usr/local/lib/konica/lib/`
+- retrofit PPDs pointing directly to `/usr/local/lib/konica/KonicaMinolta/245igdi/Filters/245igdirf`
+- the custom USB backend and the service/persistence configuration
+
+The snapshot's own `SHA256SUMS` was verified successfully before the archive was
+created. Archive SHA-256:
+`afbf81f9820621f8f1963e44f595f7080a26ec4fff178090059bd906a8e9c05b`.
+
 ## 3. How to restore
 
 ### 3a. Restore the printer setup on this machine (files only)
@@ -154,8 +173,8 @@ Restores config + binaries + state. The PAPPL app must be installed (see §3b
 for that).
 
 ```bash
-cd /home/vinod/konica-pappl-backup-20260816-1050
-sha256sum -c SHA256SUMS          # verify integrity first (all lines must be OK)
+cd /home/vinod/konica-pappl-backup-20260818-1532
+sudo sha256sum -c SHA256SUMS          # verify integrity first (all lines must be OK)
 
 sudo cp -a etc/systemd/system/legacy-printer-app.service.d /etc/systemd/system/
 sudo cp -a etc/cups/ppd/.          /etc/cups/ppd/
@@ -180,7 +199,7 @@ If `legacy-printer-app` / `libpappl-retrofit1` / `libpappl1t64` were lost
 (e.g. dropped during a release upgrade), reinstall from the archived debs:
 
 ```bash
-cd backup/konica-pappl-backup-20260816-1050/debs
+cd backup/debs
 sudo apt-get install -y ./legacy-printer-app_1.0~b2-0ubuntu8_amd64.deb \
                         ./libpappl-retrofit1_1.0~b2-0ubuntu8_amd64.deb \
                         ./libpappl1t64_1.4.9-0ubuntu2_amd64.deb
@@ -337,10 +356,11 @@ them from a newer system/archived copy if that's ever a concern.
 | Classic USB backend (pristine) | `1ebbe1e68d3f1ffbab2cc0f5a0dc2c0c8393dcb3ea47df74416e73147947dc3f` |
 | Vendor driver `245igdirf` (pristine) | `0faf0a69aa772805423a9c4c1e5bb20f74d0bf43daeee676d4fa7c658377380d` |
 | Custom chunked backend binary | `d76e61bc...` (see backup `SHA256SUMS`) |
-| Backup tarball | `ffd619371c0f685a57efbf6502446c358da45b665938bec3d1f9c83676affda8` |
+| Current Option A backup tarball | `afbf81f9820621f8f1963e44f595f7080a26ec4fff178090059bd906a8e9c05b` |
+| Historical 2026-08-16 backup tarball | `ffd619371c0f685a57efbf6502446c358da45b665938bec3d1f9c83676affda8` |
 
-Every file in `backup/konica-pappl-backup-20260816-1050/` is covered by its own
-`SHA256SUMS` manifest (verified on capture).
+Every file in the current `backup/konica-pappl-backup-20260818-1532/` snapshot is covered by its own
+`SHA256SUMS` manifest (verified on capture). The 2026-08-16 snapshot is retained as historical reference.
 
 ---
 
@@ -358,8 +378,9 @@ Every file in `backup/konica-pappl-backup-20260816-1050/` is covered by its own
 
 ## 8. Related local files (this machine)
 
-- Full backup: `/home/vinod/konica-pappl-backup-20260816-1050/` and
-  `/home/vinod/konica-pappl-backup-20260816-1050.tar.gz`
+- Current Option A backup: `/home/vinod/konica-pappl-backup-20260818-1532/` and
+  `/home/vinod/konica-pappl-backup-20260818-1532.tar.gz`
+- Historical backup: `/home/vinod/konica-pappl-backup-20260816-1050.tar.gz`
 - Earlier snapshot: `/home/vinod/konica-printer-backup-20260807-153913/`
 - Design doc: `/home/vinod/KONICA_206_RETROFIT_DOCUMENTATION.md`
 - Investigation log: `/home/vinod/KONICA_PAPPL_RETROFIT_INVESTIGATION.md`

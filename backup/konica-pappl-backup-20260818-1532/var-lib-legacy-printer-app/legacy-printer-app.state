@@ -1,0 +1,117 @@
+DNSSDName CUPS Driver Retro-Fit Printer Application
+Contact
+DefaultPrinterID 1
+MaxImageSize 1073741824 16384 16384
+NextPrinterID 4
+UUID urn:uuid:a3aa22b2-abfa-3768-458a-ad810807c1f7
+<Printer did="" driver="konica-minolta--206--full-bleed-retrofit-en" id="3" name="konica206uri" state="3" uri="cups:usb://KONICA%20MINOLTA/206?serial=A8A6041029423&interface=1">
+DNSSDName konica206uri
+Contact
+MaxActiveJobs 0
+MaxCompletedJobs 100
+NextJobId 72
+ImpressionsCompleted 0
+identify-actions-default sound
+media-col-default bottom="423" left="141" length="29700" name="iso_a4_210x297mm" right="141" source="auto" top="423" type="plain" width="21000"
+media-col-ready0 bottom="423" left="141" length="27940" name="na_letter_8.5x11in" right="141" source="auto" top="423" type="plain" width="21590"
+media-col-ready1 bottom="423" left="141" length="27940" name="na_letter_8.5x11in" right="141" source="tray-1" top="423" type="plain" width="21590"
+media-col-ready2 bottom="423" left="141" length="27940" name="na_letter_8.5x11in" right="141" source="tray-2" top="423" type="plain" width="21590"
+media-col-ready3 bottom="423" left="141" length="27940" name="na_letter_8.5x11in" right="141" source="tray-3" top="423" type="plain" width="21590"
+media-col-ready4 bottom="423" left="141" length="27940" name="na_letter_8.5x11in" right="141" source="tray-4" top="423" type="plain" width="21590"
+media-col-ready5 bottom="423" left="141" length="27940" name="na_letter_8.5x11in" right="141" source="tray-5" top="423" type="plain" width="21590"
+media-col-ready6 bottom="423" left="141" length="27940" name="na_letter_8.5x11in" right="141" source="bypass" top="423" type="plain" width="21590"
+orientation-requested-default none
+print-color-mode-default monochrome
+print-content-optimize-default auto
+print-quality-default normal
+print-scaling-default auto
+printer-resolution-default 600x600dpi
+sides-default one-sided
+bypass-default installed
+trays-default not-installed
+collate-default on
+output-method-default print
+duplex-unit-default installed
+password-digit-1-default 0
+password-digit-2-default 0
+password-digit-3-default 0
+password-digit-4-default 0
+account-track-default off
+department-name-digit-1-default 0
+department-name-digit-2-default 0
+department-name-digit-3-default 1
+brightness-default 0
+contrast-default 0
+toner-save-default automatic-selection
+Job completed="1787045385" created="1787045380" format="application/pdf" id="71" impressions="1" name="ಎರಡನೇ ತರಗತಿ 2026ಅಭ್ಯಾಸ ಪತ್ರಿಕೆ ೧.pdf" processing="1787045380" state="9" username="vinod"
+Job completed="1787043803" created="1787043801" format="application/pdf" id="70" impressions="1" name="ಎರಡನೇ ತರಗತಿ 2026ಅಭ್ಯಾಸ ಪತ್ರಿಕೆ ೧.pdf" processing="1787043801" state="9" username="vinod"
+Job completed="1787037343" created="1787037337" format="application/pdf" id="69" impressions="1" name="ಎರಡನೇ ತರಗತಿ 2026ಅಭ್ಯಾಸ ಪತ್ರಿಕೆ ೧.pdf" processing="1787037337" state="9" username="vinod"
+Job completed="1787037216" created="1787037214" format="application/pdf" id="68" impressions="1" name="(stdin)" processing="1787037214" state="9" username="vinod"
+Job completed="1787036811" created="1787036810" format="application/pdf" id="67" impressions="1" name="(stdin)" processing="1787036810" state="9" username="vinod"
+Job completed="1787036805" created="1787036804" format="application/pdf" id="66" impressions="1" name="(stdin)" processing="1787036804" state="9" username="vinod"
+Job completed="1787036753" created="1787036751" format="application/pdf" id="65" impressions="1" name="(stdin)" processing="1787036751" state="9" username="vinod"
+Job completed="1787036392" created="1787036389" format="application/pdf" id="64" impressions="1" name="(stdin)" processing="1787036389" state="9" username="vinod"
+Job completed="1787036198" created="1787036197" format="application/pdf" id="63" impressions="1" name="(stdin)" processing="1787036197" state="9" username="vinod"
+Job completed="1787036171" created="1787035828" format="application/pdf" id="62" name="(stdin)" state="7" username="vinod"
+Job completed="1787037344" created="1787034992" filename="/var/spool/legacy-printer-app/p00003j000000061-_stdin_.pdf" format="application/pdf" id="61" impressions="1" name="(stdin)" processing="1787034992" state="7" username="vinod"
+Job completed="1787034480" created="1787034478" format="application/pdf" id="60" impressions="1" name="EAadhaar_4050001783572920240307095703_22072026153327.pdf" processing="1787034478" state="9" username="vinod"
+Job completed="1787033618" created="1787033617" format="application/pdf" id="59" impressions="1" name="EAadhaar_4050001783572920240307095703_22072026153327.pdf" processing="1787033617" state="9" username="vinod"
+Job completed="1787033512" created="1787033511" format="application/pdf" id="58" impressions="1" name="(stdin)" processing="1787033511" state="9" username="vinod"
+Job completed="1787033493" created="1787033493" format="application/pdf" id="57" impressions="1" name="(stdin)" processing="1787033493" state="9" username="vinod"
+Job completed="1787033398" created="1787033398" format="application/postscript" id="56" impressions="1" name="(stdin)" processing="1787033398" state="9" username="vinod"
+Job completed="1787033386" created="1787033384" format="application/pdf" id="55" impressions="1" name="Application_of_Vectors_Questions.pdf" processing="1787033384" state="9" username="vinod"
+Job completed="1787033354" created="1787033354" format="application/pdf" id="54" impressions="1" name="(stdin)" processing="1787033354" state="9" username="vinod"
+Job completed="1787033336" created="1787033335" format="application/pdf" id="53" impressions="1" name="(stdin)" processing="1787033335" state="9" username="vinod"
+Job completed="1787033202" created="1787033202" format="application/octet-stream" id="52" name="hostname" processing="1787033202" state="8" username="vinod"
+Job completed="1787032927" created="1787032927" format="application/octet-stream" id="51" name="(stdin)" processing="1787032927" state="8" username="vinod"
+Job completed="1787032773" created="1787032771" format="application/postscript" id="50" impressions="1" name="(stdin)" processing="1787032771" state="9" username="vinod"
+Job completed="1787032561" created="1787032558" format="application/pdf" id="49" impressions="1" name="EAadhaar_4050001783572920240307095703_22072026153327.pdf" processing="1787032559" state="9" username="vinod"
+Job completed="1787031505" created="1787031496" format="application/pdf" id="48" impressions="1" name="ಎರಡನೇ ತರಗತಿ 2026ಅಭ್ಯಾಸ ಪತ್ರಿಕೆ ೧.pdf" processing="1787031496" state="9" username="vinod"
+Job completed="1787029628" created="1787029627" format="application/pdf" id="47" impressions="1" name="gThumb job #1" processing="1787029627" state="9" username="vinod"
+Job completed="1787028763" created="1787028762" format="application/pdf" id="46" impressions="1" name="gThumb job #1" processing="1787028762" state="9" username="vinod"
+Job completed="1787028271" created="1787028270" format="application/pdf" id="45" impressions="1" name="gThumb job #1" processing="1787028270" state="9" username="vinod"
+Job completed="1787028165" created="1787028163" format="application/pdf" id="44" impressions="1" name="konica-test.pdf" processing="1787028163" state="9" username="vinod"
+Job completed="1787028100" created="1787028100" format="application/octet-stream" id="43" name="(stdin)" processing="1787028100" state="8" username="vinod"
+Job completed="1787027056" created="1787027055" format="application/pdf" id="42" impressions="1" name="gThumb job #1" processing="1787027055" state="9" username="vinod"
+Job completed="1787025852" created="1787025848" format="application/pdf" id="41" impressions="1" name="VSR CV.2026.pdf — Kodandapani CURRICULUMVITAE.docx" processing="1787025848" state="9" username="vinod"
+Job completed="1787025363" created="1787025363" format="application/pdf" id="40" impressions="1" name="gThumb job #1" processing="1787025363" state="9" username="vinod"
+Job completed="1787023997" created="1787023995" format="application/pdf" id="39" impressions="1" name="gThumb job #2" processing="1787023995" state="9" username="vinod"
+Job completed="1787023986" created="1787023982" format="application/pdf" id="38" impressions="1" name="gThumb job #1" processing="1787023982" state="9" username="vinod"
+Job completed="1787023404" created="1787023403" format="application/pdf" id="37" impressions="1" name="gThumb job #1" processing="1787023403" state="9" username="vinod"
+Job completed="1787019448" created="1787019447" format="application/pdf" id="36" impressions="1" name="gThumb job #1" processing="1787019447" state="8" username="vinod"
+Job completed="1786981547" created="1786981544" format="application/postscript" id="35" impressions="1" name="(stdin)" processing="1786981544" state="9" username="vinod"
+Job completed="1786979473" created="1786979447" format="application/pdf" id="34" impressions="1" name="DocScanner 17 Aug 2026 15-05.pdf" processing="1786979447" state="9" username="vinod"
+Job completed="1786977149" created="1786977146" format="application/pdf" id="33" impressions="1" name="Integration_Assignment.pdf — Integration Assignment" processing="1786977146" state="9" username="vinod"
+Job completed="1786976778" created="1786976775" format="application/pdf" id="32" impressions="1" name="4950144626_clean.pdf" processing="1786976775" state="9" username="vinod"
+Job completed="1786976208" created="1786976206" format="application/pdf" id="31" impressions="1" name="Integration_Assignment.pdf" processing="1786976206" state="9" username="vinod"
+Job completed="1786975997" created="1786975988" format="application/pdf" id="30" impressions="1" name="Integration Assignment - Integration_Assignment.pdf" processing="1786975988" state="9" username="vinod"
+Job completed="1786975931" created="1786975925" format="application/pdf" id="29" impressions="1" name="Application_of_Vectors_Questions.pdf" processing="1786975925" state="9" username="vinod"
+Job completed="1786975056" created="1786975053" format="application/pdf" id="28" impressions="1" name="4950144626_clean.pdf" processing="1786975053" state="9" username="vinod"
+Job created="1786974951" filename="/var/spool/legacy-printer-app/p00003j000000027-4950144626_pdf.pdf" format="application/pdf" id="27" name="4950144626.pdf" processing="1786974951" state="5" username="vinod"
+Job created="1786974203" filename="/var/spool/legacy-printer-app/p00003j000000026-4950144626_pdf.pdf" format="application/pdf" id="26" name="4950144626.pdf" processing="1786974203" state="5" username="vinod"
+Job completed="1786993908" created="1786993906" format="application/pdf" id="25" impressions="1" name="gThumb job #2" processing="1786993906" state="9" username="vinod"
+Job completed="1786993910" created="1786973582" format="application/pdf" id="24" impressions="1" name="gThumb job #2" processing="1786993908" state="9" username="vinod"
+Job completed="1786973565" created="1786973549" format="application/pdf" id="23" name="gThumb job #1" state="7" username="vinod"
+Job completed="1786993914" created="1786992727" format="application/pdf" id="22" impressions="1" name="duplex.pdf" processing="1786993910" state="9" username="vinod"
+Job completed="1786973582" created="1786991883" filename="/var/spool/legacy-printer-app/p00003j000000021-4950144626_pdf.pdf" format="application/pdf" id="21" name="4950144626.pdf" processing="1786991883" state="7" username="vinod"
+Job completed="1786991208" created="1786991207" format="application/pdf" id="20" impressions="1" name="duplex.pdf" processing="1786991207" state="9" username="vinod"
+Job completed="1786991207" created="1786991206" format="application/pdf" id="19" impressions="1" name="simplex.pdf" processing="1786991206" state="9" username="vinod"
+Job completed="1786989784" created="1786989783" format="application/pdf" id="18" impressions="1" name="test-2p.pdf" processing="1786989783" state="9" username="vinod"
+Job completed="1786989782" created="1786989781" format="application/pdf" id="17" impressions="1" name="test-2p.pdf" processing="1786989781" state="9" username="vinod"
+Job completed="1786989569" created="1786989568" format="application/pdf" id="16" impressions="1" name="test-2p.pdf" processing="1786989568" state="9" username="vinod"
+Job completed="1786989567" created="1786989566" format="application/pdf" id="15" impressions="1" name="test-2p.pdf" processing="1786989566" state="9" username="vinod"
+Job completed="1786987176" created="1786987175" format="application/pdf" id="14" impressions="1" name="test-a4.pdf" processing="1786987175" state="9" username="vinod"
+Job completed="1786987103" created="1786987102" format="application/pdf" id="13" impressions="1" name="test-a4.pdf" processing="1786987102" state="9" username="vinod"
+Job completed="1786986423" created="1786986422" format="application/pdf" id="12" impressions="1" name="test-a4.pdf" processing="1786986422" state="9" username="vinod"
+Job completed="1786986351" created="1786986350" format="application/pdf" id="11" impressions="1" name="test-a4.pdf" processing="1786986350" state="9" username="vinod"
+Job completed="1786985657" created="1786985656" format="application/pdf" id="10" impressions="1" name="test-a4.pdf" processing="1786985656" state="9" username="vinod"
+Job completed="1786985376" created="1786985375" format="application/pdf" id="9" impressions="1" name="test-a4.pdf" processing="1786985375" state="9" username="vinod"
+Job completed="1786985216" created="1786985211" format="application/pdf" id="8" impressions="1" name="4950144626.pdf" processing="1786985211" state="9" username="vinod"
+Job completed="1786979048" created="1786979047" format="application/pdf" id="7" impressions="1" name="test-a4.pdf" processing="1786979047" state="9" username="vinod"
+Job completed="1786979043" created="1786979042" format="application/pdf" id="6" impressions="1" name="test-a4.pdf" processing="1786979042" state="9" username="vinod"
+Job completed="1786978985" created="1786978984" format="application/pdf" id="5" impressions="1" name="test-a4.pdf" processing="1786978984" state="9" username="vinod"
+Job completed="1786978892" created="1786978892" format="application/pdf" id="4" impressions="1" name="test-a4.pdf" processing="1786978892" state="8" username="vinod"
+Job completed="1786978835" created="1786978834" format="application/pdf" id="3" impressions="1" name="test-a4.pdf" processing="1786978834" state="8" username="vinod"
+Job completed="1786978412" created="1786978412" format="application/pdf" id="2" impressions="1" name="test-a4.pdf" processing="1786978412" state="8" username="vinod"
+Job completed="1786978407" created="1786978407" format="application/pdf" id="1" impressions="1" name="test-a4.pdf" processing="1786978407" state="8" username="vinod"
+</Printer>
