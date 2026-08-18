@@ -63,7 +63,8 @@ if [ -r /etc/os-release ]; then
     # shellcheck disable=SC1091
     . /etc/os-release
     case "$ID" in
-        debian|ubuntu)          DISTRO=debian;;
+        debian)                 DISTRO=debian;;
+        ubuntu)                 DISTRO=ubuntu;;
         fedora|rhel|centos|rocky|almalinux) DISTRO=fedora;;
         arch|manjaro|endeavouros) DISTRO=arch;;
         opensuse*|sles)         DISTRO=opensuse;;
@@ -93,7 +94,7 @@ log "Printer serial: $SERIAL (interface 1, bulk OUT 0x01)"
 # ---------------------------------------------------------------------------
 install_pkgs() {  # install_pkgs <names...> (best effort)
     case "$DISTRO" in
-        debian)  apt-get update -qq;  apt-get install -y "$@" ;;
+        debian|ubuntu)  apt-get update -qq;  apt-get install -y "$@" ;;
         fedora)  dnf install -y "$@" ;;
         arch)    pacman -S --noconfirm --needed "$@" ;;
         opensuse) zypper --non-interactive install "$@" ;;
@@ -113,7 +114,7 @@ install_pappl() {
     fi
     log "Installing legacy-printer-app (pappl-retrofit)..."
     case "$DISTRO" in
-        debian)
+        debian|ubuntu)
             if apt-get install -y legacy-printer-app 2>/dev/null; then return 0; fi
             # Fallback: bundled Ubuntu amd64 .debs (works on Debian/Ubuntu amd64)
             if [ "$(uname -m)" = "x86_64" ] && [ -d "$BK/debs" ]; then
@@ -142,7 +143,7 @@ install_pappl() {
     log "pappl-retrofit not packaged here; building from OpenPrinting source..."
     local deps
     case "$DISTRO" in
-        debian)  deps="git autoconf automake libtool make gcc g++ pkg-config libcups2-dev libcupsfilters-dev libppd-dev libpappl1-dev libusb-1.0-0-dev libcupsimage2-dev";;
+        debian|ubuntu)  deps="git autoconf automake libtool make gcc g++ pkg-config libcups2-dev libcupsfilters-dev libppd-dev libpappl1-dev libusb-1.0-0-dev libcupsimage2-dev";;
         fedora)  deps="git autoconf automake libtool make gcc gcc-c++ pkgconfig libcups-devel libcupsfilters-devel libppd-devel pappl-devel libusb1-devel";;
         arch)    deps="git autoconf automake libtool make gcc pkg-config cups libcupsfilters libppd pappl libusb";;
         opensuse)deps="git autoconf automake libtool make gcc gcc-c++ pkg-config libcups2-devel libcupsfilters-devel libppd-devel pappl-devel libusb-1_0-devel";;
