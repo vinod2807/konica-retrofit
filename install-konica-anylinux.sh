@@ -181,9 +181,8 @@ install_driver() {
 #     libcups2 from the distro but does NOT prevent it from coexisting
 #     privately (different SONAME than libcups3), so we extract libcups2 +
 #     libcupsimage2 from the archived .debs into a private lib dir and point
-#     245igdirf at it via patchelf --set-rpath. This makes the driver
-#     immune to the host's libcups version forever, closing the one real
-#     unresolved risk in this setup.
+#     245igdirf at it via patchelf --set-rpath. This isolates the vendor renderer from future changes to the host's
+#     libcups/libcupsimage ABI, closing the main CUPS ABI compatibility risk.
 # ---------------------------------------------------------------------------
 vendor_libcups() {
     local bin="$DRIVER_HOME/Filters/245igdirf"
@@ -261,16 +260,72 @@ EOF
         log "245igdirf wrapped with LD_LIBRARY_PATH=$libdir (patchelf unavailable)."
     fi
 
-    # Final check: the binary must now resolve libcups.so.2 + libcupsimage.so.2
-    # from the private dir, independent of whatever CUPS the host ships.
+    # Final check: verify that the vendor renderer is isolated from the host
+    # libcups/libcupsimage ABI.  When patchelf is used, ldd is run WITHOUT
+    # LD_LIBRARY_PATH so a missing RPATH/RUNPATH cannot be masked.  When the
+    # patchelf fallback wrapper is used, verify the .real binary with the same
+    # private library path that the wrapper supplies.
     if command -v ldd >/dev/null 2>&1; then
-        local real_bin="$bin"; [ -f "${bin}.real" ] && real_bin="${bin}.real"
-        if ! LD_LIBRARY_PATH="$libdir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-                ldd "$real_bin" 2>/dev/null | grep -q "libcups.so.2 => $libdir"; then
-            warn "Could not confirm 245igdirf resolves libcups.so.2 from $libdir."
-            warn "Run: ldd $real_bin | grep libcups   — and check the rpath/wrapper manually."
+        local real_bin="$bin"
+        local using_wrapper=0
+        [ -f "${bin}.real" ] && real_bin="${bin}.real" && using_wrapper=1
+
+        if [ "$using_wrapper" -eq 0 ]; then
+            if command -v readelf >/dev/null 2>&1; then
+                local rpath=""
+                rpath="$(readelf -d "$bin" 2>/dev/null | sed -n \
+                    's/.*\(RPATH\|RUNPATH\).*[\[]\([^]]*\)[\]].*/\2/p' | head -n1)"
+                if [ "$rpath" != "$libdir" ]; then
+                    die "245igdirf RPATH/RUNPATH is '${rpath:-<none>}', expected '$libdir'"
+                fi
+                log "OK: 245igdirf RPATH/RUNPATH = $libdir"
+            else
+                die "readelf is required to verify 245igdirf RPATH/RUNPATH"
+            fi
+
+            local cups_resolved=""
+            local cupsimage_resolved=""
+            cups_resolved="$(ldd "$real_bin" 2>/dev/null | sed -n \
+                's/^[[:space:]]*libcups\.so\.2 => \([^[:space:]]*\).*/\1/p' | head -n1)"
+            cupsimage_resolved="$(ldd "$real_bin" 2>/dev/null | sed -n \
+                's/^[[:space:]]*libcupsimage\.so\.2 => \([^[:space:]]*\).*/\1/p' | head -n1)"
+
+            if [ "$cups_resolved" != "$libdir/libcups.so.2" ]; then
+                die "245igdirf resolves libcups.so.2 to '${cups_resolved:-<not found>}', expected '$libdir/libcups.so.2'"
+            fi
+            if [ "$cupsimage_resolved" != "$libdir/libcupsimage.so.2" ]; then
+                die "245igdirf resolves libcupsimage.so.2 to '${cupsimage_resolved:-<not found>}', expected '$libdir/libcupsimage.so.2'"
+            fi
+            log "OK: libcups.so.2 -> $cups_resolved"
+            log "OK: libcupsimage.so.2 -> $cupsimage_resolved"
+        else
+            # patchelf fallback: $bin is a wrapper and $bin.real is the vendor
+            # executable.  The wrapper itself supplies LD_LIBRARY_PATH, so use
+            # that exact environment for the dependency check.
+            if [ ! -x "$bin" ] || [ ! -x "$real_bin" ]; then
+                die "245igdirf wrapper/.real pair is incomplete"
+            fi
+
+            local cups_resolved=""
+            local cupsimage_resolved=""
+            cups_resolved="$(LD_LIBRARY_PATH="$libdir" ldd "$real_bin" 2>/dev/null | sed -n \
+                's/^[[:space:]]*libcups\.so\.2 => \([^[:space:]]*\).*/\1/p' | head -n1)"
+            cupsimage_resolved="$(LD_LIBRARY_PATH="$libdir" ldd "$real_bin" 2>/dev/null | sed -n \
+                's/^[[:space:]]*libcupsimage\.so\.2 => \([^[:space:]]*\).*/\1/p' | head -n1)"
+
+            if [ "$cups_resolved" != "$libdir/libcups.so.2" ]; then
+                die "245igdirf wrapper does not resolve libcups.so.2 privately; found '${cups_resolved:-<not found>}'"
+            fi
+            if [ "$cupsimage_resolved" != "$libdir/libcupsimage.so.2" ]; then
+                die "245igdirf wrapper does not resolve libcupsimage.so.2 privately; found '${cupsimage_resolved:-<not found>}'"
+            fi
+            log "OK: wrapper resolves libcups.so.2 -> $cups_resolved"
+            log "OK: wrapper resolves libcupsimage.so.2 -> $cupsimage_resolved"
         fi
+    else
+        die "ldd is required to verify 245igdirf's private CUPS runtime"
     fi
+
 }
 
 # ---------------------------------------------------------------------------
