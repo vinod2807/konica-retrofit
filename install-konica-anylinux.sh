@@ -325,6 +325,9 @@ done
 legacy-printer-app delete -d konica206uri 2>/dev/null
 legacy-printer-app add -d konica206uri -v "\$URI" -m "\$DRIVER" 2>&1
 if legacy-printer-app printers 2>/dev/null | grep -q '^konica206uri$'; then
+  # Fix PPD ownership — legacy-printer-app may create it as _chrony or root;
+  # CUPS filters need it readable by lp.
+  chown lp:lp /etc/cups/ppd/konica206uri.ppd 2>/dev/null || true
   if [ -f "${MEDIA_TEST_DIR}/set-media-default.test" ]; then
     ipptool -tv "http://localhost:8000/ipp/print/konica206uri" \
       "${MEDIA_TEST_DIR}/set-media-default.test" >/dev/null 2>&1
