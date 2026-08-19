@@ -32,6 +32,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <ctype.h>
+#include <poll.h>
 #include <libusb-1.0/libusb.h>
 
 #define VENDOR_KONICA  0x132b
@@ -39,6 +40,7 @@
 
 #define CHUNK_SIZE     8192
 #define WRITE_TIMEOUT  30000      /* ms per bulk transfer */
+#define READ_TIMEOUT   30000      /* ms without data on stdin before aborting */
 
 /* Exit codes compatible with CUPS backends */
 #define EXIT_OK        0
@@ -232,7 +234,6 @@ send_to_printer(libusb_device_handle *handle,
                 int                   endpoint)
 {
     unsigned char buffer[CHUNK_SIZE];
-    ssize_t bytes;
     int transferred, ret;
     int config = -1;
 
@@ -258,9 +259,52 @@ send_to_printer(libusb_device_handle *handle,
     fprintf(stderr, "INFO: Connected to interface %d, endpoint 0x%02x\n",
             interface_num, endpoint);
 
-    while ((bytes = read(0, buffer, sizeof(buffer))) > 0)
+    while (1)
     {
+        struct pollfd pfd;
+        ssize_t bytes;
         size_t offset = 0;
+        int pr;
+
+        /*
+         * Wait for data on stdin with a timeout. If the upstream filter
+         * chain stalls (e.g. the vendor GDI filter hangs and produces
+         * nothing), a plain read() would block forever and freeze the whole
+         * print queue. Polling lets us abort the job instead.
+         */
+        pfd.fd = 0;
+        pfd.events = POLLIN;
+
+        pr = poll(&pfd, 1, READ_TIMEOUT);
+        if (pr < 0)
+        {
+            if (errno == EINTR)
+                continue;
+            fprintf(stderr, "ERROR: poll() failed: %s\n", strerror(errno));
+            libusb_release_interface(handle, interface_num);
+            return (EXIT_FAILED);
+        }
+        if (pr == 0)
+        {
+            fprintf(stderr,
+                    "ERROR: No data received for %d seconds; aborting job "
+                    "to avoid blocking the print queue.\n", READ_TIMEOUT / 1000);
+            libusb_release_interface(handle, interface_num);
+            return (EXIT_STOP);
+        }
+
+        bytes = read(0, buffer, sizeof(buffer));
+        if (bytes == 0)
+            break;                              /* EOF: end of job */
+        if (bytes < 0)
+        {
+            if (errno == EINTR)
+                continue;
+            fprintf(stderr, "ERROR: Unable to read print data: %s\n",
+                    strerror(errno));
+            libusb_release_interface(handle, interface_num);
+            return (EXIT_FAILED);
+        }
 
         while (offset < (size_t)bytes)
         {
