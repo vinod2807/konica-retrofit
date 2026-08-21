@@ -132,6 +132,7 @@ Key settings that MUST be present in the PAPPL driver PPD:
 | 9 | Atril sends `color`, rejected | No `*ColorModel` ⇒ no `print-color-mode-supported`; Atril defaults to color | Add `*ColorModel` with only `Gray` ⇒ CUPS advertises `monochrome`; restart cups |
 | 10 | Queue disappears after service restart | User-added PPD driver registers as `-user-added-en` on restart | `ensure-konica206uri.sh` ExecStartPost re-adds queue |
 | 11 | CUPS 3.0 would remove the classic backend/libcups2 | `cups:` scheme ran `/usr/lib/cups/backend/usb` (needs `libcups.so.2`) | Self-contained libusb-only backend `konica-usb-backend` (see §8a) |
+| 12 | **Pure PAPPL native USB wedges printer** ("Data Receiving", no errors logged) | `papplDeviceWrite()` flushes its empty buffer before any >8192-byte write → zero-length USB packet (ZLP) sent before job data; bizhub 206 GDI firmware breaks on premature ZLP | Keep `cups:` scheme + chunked custom backend (never emits ZLPs); root cause + usbmon proof in §8e; upstream: michaelrsweet/pappl#434 |
 
 ---
 
@@ -487,3 +488,43 @@ Three different libcups situations:
   backup available.
 - Any job sent while the printer is wedged will abort at the backend — power-cycle
   the printer first.
+
+
+## 8e. Native PAPPL USB path ruled out — ZLP root cause found (2026-08-21)
+
+**Experiment:** a parallel PAPPL printer (`konica206pappl`, plain `usb://KONICA%20MINOLTA/206?serial=...`
+URI, no `cups:` scheme) was created to test whether the custom chunked backend could be dropped in
+favor of PAPPL's native USB device support. First job wedged the printer.
+
+**Symptom:** panel stuck at "Data Receiving"; journal shows filter chain and backend all
+"exited with no errors", job `Completed`; **no USB disconnect**. Silent false-success failure —
+worse than the Aug-7 wedge (which at least dropped off the bus).
+
+**Root cause (usbmon-proven, see `backup/diagnostics/usbmon-zlp/`):**
+
+1. `_prPrintFilterFunction` reads 10,491 bytes and calls `papplDeviceWrite(dev, buf, 10491)`
+2. `papplDeviceWrite` (pappl/device.c): `bufused(0) + 10491 > 8192` ⇒ "flush" of the EMPTY buffer
+   ⇒ `pappl_write(device, buffer, 0)` — no zero-length guard anywhere down the stack
+3. `pappl_usb_write` → `libusb_bulk_transfer(..., len=0, ...)` ⇒ **zero-length packet on the wire
+   BEFORE any job data**
+4. bizhub 206 GDI firmware breaks on the premature ZLP; subsequent data is ACKed but never rendered
+
+usbmon diff (working `konica206uri` job vs wedging native job): the working path contains only
+non-zero bulk OUT writes (8192-byte chunks from the classic-style backend); the wedging path starts
+with `S Bo:3:009:1 -115 0` / `C Bo:3:009:1 0 0`.
+
+**Why the `cups:` scheme is immune:** the same `papplDeviceWrite` buffering runs, but
+`_prCUPSDevWrite()` ends in `write(pipe_fd, buffer, bytes)` — a zero-byte pipe write is a kernel
+no-op. The ZLP never materializes. The custom chunked backend likewise never emits zero-length
+transfers.
+
+**Why the Aug-7 "chunk size" theory was incomplete:** with big jobs, PAPPL native emits a ZLP
+before *every* >8192-byte read chunk (each triggers `flush(0)`). The classic backend's reliable
+8192-byte writes worked not because of their size, but because they never interleave ZLPs.
+A libusb burst-size probe (8 KiB … sustained 64 KiB, no ZLPs) passes cleanly — synthetic traffic
+without ZLPs cannot reproduce this failure.
+
+**Disposition:** do not use PAPPL's native USB path on this device. Upstream report filed:
+https://github.com/michaelrsweet/pappl/issues/434 (suggested fix: guard `device->bufused > 0`
+before the flush, and/or return early for `bytes == 0` in `pappl_usb_write`).
+Recovery from the wedge: power-cycle, then verify via `konica206uri`.
