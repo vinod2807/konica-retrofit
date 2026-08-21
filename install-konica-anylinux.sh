@@ -252,8 +252,8 @@ vendor_libcups() {
         local libarch
         libarch="$(find "$tmp/usr/lib" -maxdepth 1 -type d -name '*-linux-gnu*' | head -n1)"
         [ -n "$libarch" ] || libarch="$tmp/usr/lib/x86_64-linux-gnu"
-        cp -a "$libarch"/libcups.so.2* "$libdir/" 2>/dev/null || die "libcups.so.2 not found in $cups_deb"
-        cp -a "$libarch"/libcupsimage.so.2* "$libdir/" 2>/dev/null || die "libcupsimage.so.2 not found in $cupsimage_deb"
+        cp -r "$libarch"/libcups.so.2* "$libdir/" 2>/dev/null || die "libcups.so.2 not found in $cups_deb"
+        cp -r "$libarch"/libcupsimage.so.2* "$libdir/" 2>/dev/null || die "libcupsimage.so.2 not found in $cupsimage_deb"
         rm -rf "$tmp"
     fi
 
@@ -540,15 +540,21 @@ wait_for_app() {
 # ---------------------------------------------------------------------------
 # Fedora/RHEL: SELinux (enforcing) can block custom binaries from /usr/local
 # ---------------------------------------------------------------------------
-check_selinux() {
-    [ "$DISTRO" = "fedora" ] || return 0
-    command -v getenforce >/dev/null 2>&1 || return 0
-    [ "$(getenforce 2>/dev/null)" = "Enforcing" ] || return 0
-    warn "SELinux is Enforcing. The custom backend and vendor filter run from"
-    warn "/usr/local and may be denied by the targeted policy (cupsd_t / initrc_t)."
-    warn "If the test print below fails or you see AVC denials (ausearch -m avc | tail):"
-    warn "  1) temporary permissive:      sudo setenforce 0"
-    warn "  2) proper policy module:      sudo ausearch -m avc | audit2allow -M konica && sudo semodule -i konica.pp"
+fix_contexts() {
+    # Capability-based (not distro-based): no-op wherever SELinux is absent.
+    command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled || return 0
+    command -v restorecon >/dev/null 2>&1 || {
+        warn "SELinux enabled but restorecon missing; install policycoreutils"
+        return 0
+    }
+    # Files copied/extracted from temp dirs can carry stale contexts
+    # (e.g. user_tmp_t), which confining policies deny to cupsd.
+    if restorecon -R /usr/local/lib/konica /usr/local/libexec/konica-backend \
+                   /usr/local/share/konica206uri 2>/dev/null; then
+        log "SELinux contexts normalized under /usr/local"
+    fi
+    warn "If printing still fails with AVC denials (ausearch -m avc | tail):"
+    warn "  sudo ausearch -m avc | audit2allow -M konica && sudo semodule -i konica.pp"
 }
 
 # ---------------------------------------------------------------------------
@@ -666,7 +672,7 @@ main() {
         warn "Printer Application did not come up; check journalctl -u legacy-printer-app"
     fi
     install_usb_queue_watch
-    check_selinux
+    fix_contexts
     verify
 }
 main "$@"
