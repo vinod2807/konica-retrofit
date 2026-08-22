@@ -528,3 +528,27 @@ without ZLPs cannot reproduce this failure.
 https://github.com/michaelrsweet/pappl/issues/434 (suggested fix: guard `device->bufused > 0`
 before the flush, and/or return early for `bytes == 0` in `pappl_usb_write`).
 Recovery from the wedge: power-cycle, then verify via `konica206uri`.
+
+### 8e.1 — Decision tree: switching to native PAPPL USB after the upstream fix
+
+Upstream status: **fixed same-day** — michaelrsweet/pappl#434 closed with
+`9093b16` (master) and `bc29de9` (v1.4.x backport, ships in the next 1.4.x
+release). Until Fedora packages a pappl release containing the fix
+(`rpm -q pappl`; check `dnf changelog pappl | grep -i 434` or empty-buffer
+guard in `papplDeviceWrite`), **native `usb://` still wedges this printer.**
+
+Once a fixed pappl is installed:
+
+1. Re-create a test queue per dossier §6 (`PAPPL_ZLP_DOSSIER.md`) and print
+   one job; verify paper output AND absence of "Data Receiving" wedge.
+2. If it validates, switching is an optional 5-minute cleanup:
+   - change device URI `cups:usb://...` → `usb://...` (no `interface=`)
+   - drop `-o backend-directory=...` from the systemd override
+   - retire `/usr/local/libexec/konica-backend/`
+3. If anything looks off, keep the custom backend — it is unaffected by all
+   of this and remains the proven path.
+
+Gains from switching are marginal (one small binary less). The custom backend
+also keeps its 30-second no-progress abort safety net, which PAPPL's native
+path lacks (`libusb_bulk_transfer` timeout=0 = infinite hang on a wedged
+device). There is no urgency either way.
