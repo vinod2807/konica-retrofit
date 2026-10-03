@@ -44,6 +44,8 @@ MEDIA_TEST_DIR="/usr/local/share/konica206uri"
 # so PAPPL receives application/vnd.printer-specific instead of raster and
 # the job aborts.
 PPD_QUEUE_FILE="${PPD_QUEUE_FILE:-}"
+# Classic USB queue: the only path where duplex renders correctly.
+DUPLEX_QUEUE="${DUPLEX_QUEUE:-KONICA_MINOLTA_206}"
 DEFAULT_MEDIA="${DEFAULT_MEDIA:-iso_a4_210x297mm}"
 DEFAULT_SIDES="${DEFAULT_SIDES:-one-sided}"
 IPP_ENDPOINT="http://localhost:${SERVER_PORT}/ipp/print/${PRINTER_NAME}"
@@ -381,6 +383,9 @@ if [ -d ${DRIVER_HOME} ]; then
 fi
 # ensure CUPS queues exist (guarded; lpadmin -P is unsupported on CUPS 3.0)
 SHIM_PPD='${MEDIA_TEST_DIR}/${PRINTER_NAME}-driverless.ppd'
+DUPLEX_QUEUE='${DUPLEX_QUEUE}'
+DUPLEX_PPD='${PAPPL_PPD_DIR}/KonicaMinolta-206-fullbleed.ppd'
+USB_URI='usb://KONICA%20MINOLTA/206?serial=${SERIAL}&interface=1'
 if command -v lpadmin >/dev/null 2>&1 && command -v lpstat >/dev/null 2>&1; then
   # primary: shim-PPD IPP queue so GUI apps see every paper size.
   # Re-attach the shim PPD when we have it; fall back to PPD-less.
@@ -402,7 +407,17 @@ if command -v lpadmin >/dev/null 2>&1 && command -v lpstat >/dev/null 2>&1; then
   lpadmin -p ${PRINTER_NAME} -o sides-default=${DEFAULT_SIDES} 2>/dev/null || true
   lpadmin -p ${PRINTER_NAME} -o media-default=${DEFAULT_MEDIA} 2>/dev/null || true
   lpadmin -p ${PRINTER_NAME} -o PageSize-default=A4 2>/dev/null || true
-  lpadmin -d ${PRINTER_NAME} 2>/dev/null || true
+
+  # classic USB queue: the one that does duplex correctly (see create_queues)
+  if [ -f "\$DUPLEX_PPD" ]; then
+    lpadmin -p ${DUPLEX_QUEUE} -v "\$USB_URI" -P "\$DUPLEX_PPD" -E 2>/dev/null || true
+    lpadmin -p ${DUPLEX_QUEUE} -o sides-default=${DEFAULT_SIDES} 2>/dev/null || true
+    lpadmin -p ${DUPLEX_QUEUE} -o media-default=${DEFAULT_MEDIA} 2>/dev/null || true
+    lpadmin -p ${DUPLEX_QUEUE} -o PageSize-default=A4 2>/dev/null || true
+    lpadmin -d ${DUPLEX_QUEUE} 2>/dev/null || true
+  else
+    lpadmin -d ${PRINTER_NAME} 2>/dev/null || true
+  fi
 fi
 for i in \$(seq 1 30); do
   if legacy-printer-app printers 2>/dev/null | awk '{print \$1}' | grep -qx '${PRINTER_NAME}'; then
@@ -715,8 +730,43 @@ create_queues() {
         # -o sides=two-sided-long-edge / two-sided-short-edge.
         set_queue_defaults "$PRINTER_NAME"
 
-        lpadmin -d "$PRINTER_NAME"
-        lpoptions -d "$PRINTER_NAME" 2>/dev/null || true
+        # ------------------------------------------------------------------
+        # Classic USB queue -- THIS is the queue that does duplex correctly.
+        #
+        # Duplex on the Printer Application queue (konica206uri) produces a
+        # ghost: libpappl always reports a 4pt/12pt-inset *ImageableArea
+        # (it ignores the PPD's value), while 245igdirf declares the full
+        # sheet in PJL (PAPERWIDTH/PAPERLENGTH). The printer then lays the
+        # inset raster onto a full-size page and the never-initialised edge
+        # strip renders as leftover data from the previous page. Verified
+        # reproducible on both queues; not fixable via PPD/queue options
+        # (tested cupsBackSide Rotated/Normal, resolution, IMAGELEN framing).
+        #
+        # The classic queue honours the PPD's *ImageableArea, so with the
+        # vendor's full-page value ("0 0 595 842") the raster matches the
+        # declared sheet exactly and duplex comes out clean.
+        # ------------------------------------------------------------------
+        local usb_uri="usb://KONICA%20MINOLTA/206?serial=${SERIAL}&interface=1"
+        local duplex_ppd="$PAPPL_PPD_DIR/KonicaMinolta-206-fullbleed.ppd"
+        if [ -f "$duplex_ppd" ]; then
+            # Simplex is the default; duplex stays selectable.
+            sed -i -E 's/^\*DefaultDuplexer:[[:space:]]*false/*DefaultDuplexer: true/;
+                       s/^\*DefaultDuplex:[[:space:]]*.*/*DefaultDuplex: None/' "$duplex_ppd"
+            log "Creating the classic USB queue ($DUPLEX_QUEUE) for duplex..."
+            lpadmin -p "$DUPLEX_QUEUE" -v "$usb_uri" -E 2>/dev/null || true
+            lpadmin -p "$DUPLEX_QUEUE" -P "$duplex_ppd" -E 2>/dev/null ||
+                warn "could not attach the duplex PPD to $DUPLEX_QUEUE"
+            set_queue_defaults "$DUPLEX_QUEUE"
+            # This queue is the one that handles simplex AND duplex, so it
+            # becomes the default. konica206uri stays as the CUPS-3.0-proof
+            # queue (simplex-only in practice).
+            lpadmin -d "$DUPLEX_QUEUE"
+            lpoptions -d "$DUPLEX_QUEUE" 2>/dev/null || true
+        else
+            warn "duplex PPD not found ($duplex_ppd); $DUPLEX_QUEUE not created"
+            lpadmin -d "$PRINTER_NAME"
+            lpoptions -d "$PRINTER_NAME" 2>/dev/null || true
+        fi
 
         # Optional classic-PPD queue kept under the historical name for
         # compatibility (skipped silently on CUPS 3.0 where -P is
@@ -740,6 +790,7 @@ create_queues() {
     else
         warn "lpadmin not found (CUPS 3.0?). Skipping CUPS queue."
         warn "Point GUI apps directly at: $IPP_ENDPOINT"
+        warn "Duplex needs CUPS 2.x + the classic usb:// queue on this printer."
     fi
 }
 
@@ -796,8 +847,19 @@ verify() {
         sudo env DEVICE_URI="" "$BACKEND_DIR/usb" 2>/dev/null || true
     fi
     echo
-    echo "Test print (A4, 2-sided):"
-    echo "  lp -d $PRINTER_NAME -o media=iso_a4_210x297mm -o sides=two-sided-long-edge <file.pdf>"
+    echo "Test print (A4, simplex -- the default):"
+    echo "  lp -d $DUPLEX_QUEUE <file.pdf>"
+    echo
+    echo "Test print (A4, duplex long edge -- use the CLASSIC queue, see note below):"
+    echo "  lp -d $DUPLEX_QUEUE -o sides=two-sided-long-edge <file.pdf>"
+    echo
+    echo "NOTE: duplex on '$PRINTER_NAME' (Printer Application / PAPPL) renders a"
+    echo "      ghost. libpappl pins *ImageableArea to a 4pt/12pt inset while"
+    echo "      245igdirf declares the full sheet in PJL, so the uninitialised"
+    echo "      page edge picks up leftover data from the previous page. Use"
+    echo "      '$DUPLEX_QUEUE' (classic usb:// + vendor full-page ImageableArea)"
+    echo "      for duplex; '$PRINTER_NAME' is fine for simplex and is the"
+    echo "      CUPS-3.0-proof path."
 }
 
 # ---------------------------------------------------------------------------

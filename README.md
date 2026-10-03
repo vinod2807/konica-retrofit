@@ -73,11 +73,12 @@ USB:
 
 | Queue | Scheduler | How it talks to the printer | Status |
 |---|---|---|---|
-| `KONICA_MINOLTA_206` | classic CUPS | `/usr/lib/cups/backend/usb` (classic, needs `libcups.so.2`) | works today; **breaks under CUPS 3.0** (kept only as fallback) |
-| `konica206uri` | `legacy-printer-app` (PAPPL) | own filter chain → self-contained libusb backend | **primary queue**, CUPS-3.0-proof |
+| `KONICA_MINOLTA_206` | classic CUPS | `/usr/lib/cups/backend/usb` (classic, needs `libcups.so.2`) | **default queue** — the only one where duplex renders correctly (§5.2); **breaks under CUPS 3.0** |
+| `konica206uri` | `legacy-printer-app` (PAPPL) | own filter chain → self-contained libusb backend | CUPS-3.0-proof; simplex only — duplex ghosts (§5.2) |
 
-The PAPPL queue is the one GUI applications use (Atril, etc.) via the CUPS
-passthrough queue `konica206uri` → `ipp://localhost:8000/ipp/print/konica206uri`.
+Both queues default to **A4 + one-sided (simplex)**. Use
+`KONICA_MINOLTA_206` for duplex; `konica206uri` is the forward-looking
+(CUPS-3.0-proof) path and is fine for simplex.
 
 ### Architecture (the PAPPL path)
 
@@ -384,6 +385,71 @@ them from a newer system/archived copy if that's ever a concern.
 
 ---
 
+### 5.2 Duplex on the Printer Application queue is broken — use the classic queue
+
+**Symptom.** On `konica206uri` (Printer Application / PAPPL), a duplex job prints
+both pages but the reverse side also carries a **ghost** of the front page — a
+bar/ghost in the page margin. Confirmed visually on a 2-page test file where
+page 1 has a bar on the left and page 2 a bar on the right: each side shows its
+own page *plus* faint leftover content from the other.
+
+**Root cause — a geometry mismatch, not a duplex-mechanics problem.**
+
+- `libpappl` always reports an inset `*ImageableArea`, regardless of what the
+  PPD says. Verified: with `*ImageableArea A4/A4: "0 0 595 842"` **and**
+  `*DefaultImageableArea: A4` in the PPD, the `driverless` shim still came back
+  as `"3.997 11.991 591.279 829.899"` — a 4pt/12pt inset.
+- `245igdirf` declares the **full** sheet in PJL on every page:
+  `@PJL SET PAPER=A4`, `PAPERWIDTH=4958`, `PAPERLENGTH=7016`
+  (4958/600·72 = 595.0pt, i.e. full A4).
+- So the printer is told "A4" but handed a raster inset by 4pt/12pt. The
+  uninitialised edge strip then renders as leftover data from the previous
+  page — the ghost.
+
+**Evidence matrix** (2-page test, duplex long-edge, `ghost.pdf`):
+
+| Queue | `*ImageableArea A4` | Ghost? |
+|---|---|---|
+| `KONICA_MINOLTA_206` (classic usb) | `"0 0 595 842"` (vendor full page) | **clean** (jobs 288, 296) |
+| `KONICA_MINOLTA_206` (classic usb) | `"6 12 589 830"` (inset) | ghost (job 295) |
+| `konica206uri` (PAPPL) | inset (forced by libpappl) | ghost (jobs 6, 294) |
+
+The inset geometry ghosts on **both** queues, so it is not a PAPPL bug per se —
+the classic queue simply *honours* the PPD's `ImageableArea`, so with the
+vendor's full-page value its raster matches the declared sheet and duplex comes
+out clean. `libpappl` offers no way to override it.
+
+**Ruled out along the way** (each tested and still ghosted, or changed nothing):
+
+- `*cupsBackSide` — `Rotated` vs `Normal`/`Rotated`-removed. This only controls
+  **binding**: `Rotated` gives long-edge, `Normal` gives short-edge. Neither
+  setting removes the ghost.
+- Resolution / print quality — Draft produced a structurally clean stream (single
+  `EOJ`) and *still* ghosted.
+- Stream corruption — an early `@PJL EOJ` + UEL with ~30 KB of orphaned image
+  data was found in some duplex streams, but a clean stream still ghosted, so
+  it is not the cause.
+- Both `DuplexNoTumble` and `DuplexTumble` ghost identically.
+
+**Resolution.** `KONICA_MINOLTA_206` (classic `usb://` backend + vendor
+full-page `ImageableArea`) is the queue that does **simplex and duplex**
+correctly, including long-edge binding, so it is now the default queue.
+`konica206uri` remains available and is the CUPS-3.0-proof path — use it for
+simplex.
+
+```bash
+# simplex (default: A4, one-sided)
+lp -d KONICA_MINOLTA_206 file.pdf
+# duplex, long edge
+lp -d KONICA_MINOLTA_206 -o sides=two-sided-long-edge file.pdf
+```
+
+If you have real (non-zero) margins to print within, note the trade-off: an
+inset `*ImageableArea` costs you duplex on this printer, because the driver
+always declares the full sheet.
+
+---
+
 ## 6. Verification hashes
 
 | Artifact | SHA-256 |
@@ -408,9 +474,10 @@ Every file in the current `backup/konica-pappl-backup-20260818-1532/` snapshot i
 - `legacy-printer-app` 1.0~b2-0ubuntu8 (pappl-retrofit), `libpappl1t64` 1.4.9,
   driver `konica-minolta-245igdi-cups` 2.01.
 - PAPPL printer driver name: `konica-minolta--206--real-margin-retrofit-en`.
-- Default printer: `konica206uri` (system + user). The classic
-  `KONICA_MINOLTA_206` queue is kept as a fallback for banner/test-page PDFs
-  (see §5) but is **not** the default.
+- Default printer: `KONICA_MINOLTA_206` (system + user) — this is the classic
+  `usb://` queue, and the only one where duplex renders correctly (§5.2).
+  `konica206uri` (Printer Application) is kept as the CUPS-3.0-proof path;
+  use it for simplex. Both default to A4 + one-sided (simplex).
 - `avahi-daemon` is a hard dependency of the Printer Application — see §7.1.
 
 ### 7.1 Installer bugs found and fixed on a fresh Ubuntu 26.04 machine
@@ -452,16 +519,23 @@ in `install-konica-anylinux.sh`.
 
 ### 7.2 Verified working on this machine (2026-10-03)
 
-| Check | Result |
-|---|---|
-| Simplex, A4 | `@PJL SET DUPLEX=OFF`, `PAPER=A4`, 1 page, 1 `EOJ`, filter status 0 |
-| Duplex long-edge, A4 | `@PJL SET DUPLEX=ON`, `BINDING=SHORTEDGE`, 4 pages, 1 `EOJ` |
-| Duplex short-edge, A4 | `@PJL SET DUPLEX=ON`, `BINDING=LONGEDGE`, 4 pages, 1 `EOJ` |
-| Print with **no** `-o` options | Completes — proves A4 + one-sided defaults |
-| `konica206uri-ppd` queue | Duplex job completes (`245igdirf` → USB backend, status 0) |
-| Shim PPD | 24 sizes, `*DefaultPageSize: A4`, `*DefaultDuplex: None`, 0 borderless refs |
-| Non-default size | e.g. `-o PageSize=A5` / `-o media=iso_a5_148x210mm` available |
-| `systemctl restart cups legacy-printer-app` | All queues, PPDs and defaults survive |
+All checks below were confirmed **on paper** by the owner, not just from the job
+data stream — the data stream was insufficient to catch the duplex ghost of §5.2.
+
+| Check | Queue | Result |
+|---|---|---|
+| **Simplex, A4, no `-o` flags** | `KONICA_MINOLTA_206` | Correct — real 2-page .docx |
+| **Duplex long-edge, A4** | `KONICA_MINOLTA_206` | Correct — real 2-page .docx |
+| Duplex long-edge | `KONICA_MINOLTA_206` | Clean, reproduced twice (jobs 288, 296) |
+| Duplex long-edge | `konica206uri` | **Ghosts** — see §5.2 |
+| Duplex (any binding) | `konica206uri` | Short-edge clean, long-edge ghosts |
+| Short-edge binding | `konica206uri` | Works, but binds short-edge |
+| PJL simplex | both | `@PJL SET DUPLEX=OFF`, `PAPER=A4`, 1 `EOJ`, status 0 |
+| PJL duplex long-edge | both | `@PJL SET DUPLEX=ON`, `BINDING=SHORTEDGE` |
+| Shim PPD | `konica206uri` | 24 sizes, `*DefaultPageSize: A4`, `*DefaultDuplex: None`, 0 borderless refs |
+| PPD sizes | `KONICA_MINOLTA_206` | 24 sizes, A4 default, duplexer installed, simplex default |
+| Live IPP media list | `konica206uri` | 24 media incl. A5/Legal/Tabloid/envelopes |
+| `systemctl restart cups` | both | Queues, PPDs and defaults survive |
 
 ---
 
