@@ -7,6 +7,62 @@ draft of this document. Two of its claims were wrong; see §9.
 
 ---
 
+## 0. The fix in one page
+
+**Symptom.** Pages printed via `konica206uri` (Printer Application / PAPPL) had a
+**ghost** — a band across the lower part of the sheet repeating content that
+should not be there. Simplex and duplex alike. Nothing in the job data stream
+hinted at it: `DUPLEX=ON`, correct page count, correct `EOJ`, filter exit 0.
+
+**Cause.** `245igdirf` declares the **full** sheet in PJL on every page
+(`PAPERWIDTH=4958 PAPERLENGTH=7016` = 595.0 × 841.9 pt @600 dpi). The raster it
+receives is sized from the media collection's *imageable area*, which comes from
+the driver PPD's `*ImageableArea`. When that value is inset, the raster is
+**smaller than the canvas the printer was told about**, so the page image is
+laid out over the wrong vertical extent and already-decoded scanlines reappear
+lower down — a band that repeats the page's own content.
+
+Measured by instrumenting the filter (offsets 376/380 of its input):
+
+| Path | Raster fed to `245igdirf` | PJL canvas | Result |
+|---|---|---|---|
+| PAPPL, inset `*ImageableArea` | **4860 × 6816** | 4958 × 7016 | **ghost** (−200px, 2.9%) |
+| PAPPL, full-page `*ImageableArea` | **4961 × 7016** | 4958 × 7016 | **clean** |
+| Classic CUPS, full-page `*ImageableArea` | **4961 × 7016** | 4958 × 7016 | **clean** |
+
+**The fix, in one line:** force `*ImageableArea` to equal `*PaperDimension` for
+**every** paper size in the PAPPL driver PPD.
+
+```bash
+# what install_ppds() now does, for each size:
+#   *PaperDimension A4/A4: "595 842"   (unchanged)
+#   *ImageableArea A4/A4: "0 0 595 842"   (was "6 12 589 830")
+```
+
+Implemented in `install-konica-anylinux.sh` as `normalise_geometry()` plus a
+`Geometry check OK` guard that re-reads the PPD and warns if any size still
+differs from its `*PaperDimension`.
+
+**Two traps that made this take far too long — please don't rediscover them:**
+
+1. **The shipped retrofit PPDs are internally inconsistent.** Only **A4 and
+   Letter** were full-page; the other **15 sizes were inset and would have
+   ghosted**. Testing only on A4 would have looked like a pass while leaving
+   most of the paper range broken. Both PPDs are now normalised to 24/24.
+2. **`*ImageableArea` must match `*PaperDimension` byte-for-byte.** `595.276` vs
+   `595` makes PAPPL reject the driver outright with
+   `Invalid driver left/right margins value -9` — the same failure class as the
+   `-70` error in the original design doc (§4.1).
+
+**Also note:** size keys can contain spaces (`FLS_8D125X13D25/FLS 8 1/8 x 13 1/4`),
+so any geometry-matching regex needs `[^:]+`, not `\S+`. Using `\S+` silently
+skipped 7 sizes and produced a false "all clean" reading.
+
+**Result:** both queues now render simplex and duplex correctly. See §6 for what
+was verified on paper and what could not be.
+
+---
+
 ## 1. Summary
 
 Printed pages from the Printer Application queue (`konica206uri`) carried a

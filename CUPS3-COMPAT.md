@@ -151,8 +151,12 @@ the job is submitted as `sides=two-sided-long-edge` — no PPD involved.
 | `konica206uri-ppd` classic queue | Uses `lpadmin -P` (unsupported on CUPS 3.0); skipped gracefully | Installer already guards it |
 | `lpadmin -P` driverless-PPD attachment | CUPS 2.x convenience only; PPD-less IPP queue still works | Installer falls back to PPD-less |
 
-None of these break printing or duplex through the primary `konica206uri`
-queue.
+None of these break printing or duplex through the `konica206uri` queue.
+
+> **Note (2026-10-03):** duplex on `konica206uri` was ghosting until the PPD
+> geometry was corrected — the driver PPD's `*ImageableArea` had to be normalised to
+> full page for every size. That is fixed and unrelated to CUPS 3.0; see
+> README §5.2 and `INVESTIGATION-2026-10-03-PAPPL-Ghosting-Bug.md`.
 
 ---
 
@@ -160,10 +164,13 @@ queue.
 
 `install-konica-anylinux.sh` is already CUPS-3.0-aware:
 
-- Creates the primary queue **PPD-less** (`lpadmin -p … -v ipp://… -E`).
-- Generates and attaches the driverless PPD for CUPS 2.x, falling back to
-  PPD-less when `lpadmin -P` is unsupported.
+- Generates the shim PPD with `driverless` and attaches it for CUPS 2.x
+  (`lpadmin -p … -P …`), **falling back to PPD-less** when `lpadmin -P` is
+  unsupported. This shim is what makes all paper sizes visible to GUI apps.
 - Skips `-P` for the `-ppd` queue on CUPS 3.0.
+- Creates the classic `usb://` queue (`KONICA_MINOLTA_206`) with a PPD **only on
+  CUPS 2.x**; on CUPS 3.0 `lpadmin -P` is unavailable, so that queue is skipped
+  and duplex has no PPD-based queue — see the caveat below.
 - Vendors libcups2 so 245igdirf keeps working.
 - ensure-konica206uri.sh re-creates both queues and the OCM resource-tree
   symlink on every invocation.

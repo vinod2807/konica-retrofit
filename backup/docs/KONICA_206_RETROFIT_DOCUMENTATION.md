@@ -1,5 +1,22 @@
 # Konica Minolta 206 — Full Retrofit Documentation
 
+> ### SUPERSEDED IN PART - read this first (added 2026-10-03)
+>
+> This is a **historical record** of the work as it stood at the time. Two things
+> it says about paper geometry are now **known to be wrong or incomplete**:
+>
+> - It treats the **real-margin** PPD (`*ImageableArea "6 12 589 830"`) as a valid
+>   option. It is not: any inset `*ImageableArea` makes `245igdirf` render a
+>   raster shorter than the full sheet it declares in PJL, which **ghosts** every
+>   page. The PAPPL driver must use **full-page** geometry.
+> - It records duplex as working based on **job-data inspection** only
+>   (`DUPLEX=ON`, page count, `EOJ`, filter exit 0). That is not sufficient -
+>   every defect found later was invisible in the data stream.
+>
+> Current root cause, measurements and the fix: see
+> `INVESTIGATION-2026-10-03-PAPPL-Ghosting-Bug.md` and README section 5.2.
+> The historical text below is left unedited on purpose.
+
 **System:** Ubuntu 26.04 LTS (classic .deb CUPS 2.4.16, not snap)
 **Printer:** Konica Minolta 206 (GDI, USB serial `A8A6041029423`)
 **Date:** 2026-08-16
