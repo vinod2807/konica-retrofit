@@ -24,10 +24,33 @@ SERVER_PORT="${SERVER_PORT:-8000}"
 
 PRINTER_NAME="konica206uri"
 
-# Paper handling. Real-margin (NOT full-bleed/borderless) rendering, and
-# A4 + one-sided (simplex) as the queue defaults. Duplex stays fully
-# available via -o sides=two-sided-long-edge / two-sided-short-edge.
-DRIVER_MATCH="${DRIVER_MATCH:-real-margin-retrofit}"
+# Paper handling. A4 + one-sided (simplex) are the queue defaults; duplex
+# stays available via -o sides=two-sided-long-edge / -o sides=two-sided-short-edge.
+#
+# DRIVER_MATCH selects which retrofit PPD drives the Printer Application, and
+# it MUST be the full-page-geometry one ("full-bleed-retrofit"). This is not
+# about aesthetics -- it is a correctness requirement:
+#
+#   * 245igdirf always declares the FULL sheet in PJL:
+#     PAPERWIDTH=4958, PAPERLENGTH=7016 (595.0 x 841.9 pt at 600dpi).
+#   * The raster it receives is sized from the media collection's imageable
+#     area, which comes from the PPD's *ImageableArea.
+#   * With an inset *ImageableArea (the real-margin PPD, "6 12 589 830") the
+#     raster is 4860 x 6816 -- 200px (2.9%) short of the declared canvas. The
+#     printer then renders the image into the wrong vertical extent and
+#     repeats already-decoded scanlines, which shows up as a "ghost" band
+#     across the lower part of the sheet. Measured on real documents:
+#       real-margin PPD -> raster 4860 x 6816 -> GHOSTS (simplex AND duplex)
+#       full-page  PPD  -> raster 4961 x 7016 -> clean  (matches canvas)
+#   * The classic CUPS queue honours the PPD's *ImageableArea directly, which
+#     is why the vendor's full-page value keeps that path correct.
+#
+# So: any *ImageableArea that is not the full page breaks output on this
+# printer. Keep *ImageableArea byte-identical to *PaperDimension per size
+# (e.g. both "595 842" for A4) -- mismatched rounding makes PAPPL compute a
+# negative margin and reject the driver with
+# "Invalid driver left/right margins value -N".
+DRIVER_MATCH="${DRIVER_MATCH:-full-bleed-retrofit}"
 # NB: non-suffixed form on purpose -- `add` rejects the "-user-added-en" name.
 DRIVER_NAME="${DRIVER_NAME:-konica-minolta--206--${DRIVER_MATCH}-en}"
 PAPPL_PPD_DIR="/var/lib/legacy-printer-app/ppd"
@@ -50,10 +73,12 @@ DEFAULT_MEDIA="${DEFAULT_MEDIA:-iso_a4_210x297mm}"
 DEFAULT_SIDES="${DEFAULT_SIDES:-one-sided}"
 IPP_ENDPOINT="http://localhost:${SERVER_PORT}/ipp/print/${PRINTER_NAME}"
 
-# Borderless / full-bleed words that must never appear in the generated shim
-# PPD. The retrofit tree also ships a full-bleed PPD; the default selection
-# above keeps us on real margins.
-BORDERLESS_RE='fullbleed|full-bleed|borderless|Borderless'
+# Paper-size names that must never be offered. Deliberately NOT a blanket
+# line filter: the default driver is the full-page-geometry ("full-bleed")
+# PPD, so the word can legitimately appear in driver metadata. Only size
+# declaration lines are considered, and only when the NAME contains one of
+# these tokens.
+BORDERLESS_RE='([Ff]ull-?[Bb]leed|[Bb]orderless)'
 
 log()  { echo "==> $*"; }
 warn() { echo "WARN: $*" >&2; }
@@ -350,15 +375,84 @@ install_ppds() {
     # rules that makes GUI apps hide/drop the Duplex choice even though the
     # hardware does duplex. Advertise the unit as installed while keeping
     # "*DefaultDuplex: None" so the queue still DEFAULTS to simplex.
+    # Normalise geometry: force EVERY size's *ImageableArea to the full page.
+    #
+    # The shipped retrofit PPDs are inconsistent -- in
+    # KonicaMinolta-206-fullbleed.ppd only A4 and Letter are full-page, while
+    # the other 15 sizes still carry a 6pt/12pt inset. Any inset size ghosts,
+    # because 245igdirf declares the full sheet in PJL (see the DRIVER_MATCH
+    # note above). So rewrite each *ImageableArea to "0 0 <W> <H>" using that
+    # size's *PaperDimension.
+    normalise_geometry() {
+        local p="$1"
+        python3 - "$p" <<'PY' || warn "geometry normalisation failed for $p"
+import re, sys
+path = sys.argv[1]
+lines = open(path, encoding='latin-1').read().split('\n')
+pd = {}
+for ln in lines:
+    m = re.match(r'\*PaperDimension\s+([^:]+):\s*"?([\d.]+)\s+([\d.]+)', ln)
+    if m:
+        pd[m.group(1)] = (m.group(2), m.group(3))
+changed = 0
+for i, ln in enumerate(lines):
+    m = re.match(r'(\*ImageableArea\s+)([^:]+)(:\s*)"[\d.]+\s+[\d.]+\s+[\d.]+\s+[\d.]+"\s*$', ln)
+    if not m:
+        continue
+    d = pd.get(m.group(2))
+    if not d:
+        continue
+    want = '%s%s%s"0 0 %s %s"' % (m.group(1), m.group(2), m.group(3), d[0], d[1])
+    if want != ln.rstrip():
+        lines[i] = want
+        changed += 1
+open(path, 'w', encoding='latin-1').write('\n'.join(lines))
+print("normalised %d *ImageableArea entries to full page" % changed)
+PY
+    }
+
     local p
     for p in "$PAPPL_PPD_DIR/KonicaMinolta-206-real-margins.ppd" \
              "$PAPPL_PPD_DIR/KonicaMinolta-206-fullbleed.ppd"; do
         [ -f "$p" ] || continue
         sed -i -E 's/^\*DefaultDuplexer:[[:space:]]*false/*DefaultDuplexer: true/;
                    s/^\*DefaultDuplex:[[:space:]]*.*/*DefaultDuplex: None/' "$p"
+        normalise_geometry "$p"
     done
     log "PPDs: $(ls "$PAPPL_PPD_DIR" | tr '\n' ' ')"
-    log "PAPPL driver PPD: DefaultDuplexer=$(sed -n 's/^\*DefaultDuplexer:[[:space:]]*//p' "$PAPPL_PPD_DIR/KonicaMinolta-206-real-margins.ppd") DefaultDuplex=$(sed -n 's/^\*DefaultDuplex:[[:space:]]*//p' "$PAPPL_PPD_DIR/KonicaMinolta-206-real-margins.ppd") DefaultPageSize=$(sed -n 's/^\*DefaultPageSize:[[:space:]]*//p' "$PAPPL_PPD_DIR/KonicaMinolta-206-real-margins.ppd") ImageableAreaA4=$(sed -n 's/^\*ImageableArea A4\/A4:[[:space:]]*//p' "$PAPPL_PPD_DIR/KonicaMinolta-206-real-margins.ppd")"
+    log "PAPPL driver PPD geometry: $(grep -c '^\*ImageableArea' "$PAPPL_PPD_DIR/KonicaMinolta-206-fullbleed.ppd") sizes, $(grep -c '^\*ImageableArea.*"0 0 ' "$PAPPL_PPD_DIR/KonicaMinolta-206-fullbleed.ppd") full-page"
+
+    # Guard rail: the driver's *ImageableArea MUST equal *PaperDimension for
+    # every size. An inset value makes the raster smaller than the canvas
+    # 245igdirf declares in PJL, which ghosts the output; a value that is even
+    # slightly LARGER makes PAPPL compute a negative margin and refuse the
+    # driver ("Invalid driver left/right margins value -N").
+    local driver_ppd="$PAPPL_PPD_DIR/KonicaMinolta-206-fullbleed.ppd"
+    if [ -f "$driver_ppd" ]; then
+        local mismatch
+        mismatch="$(python3 - "$driver_ppd" <<'PY'
+import re, sys
+pd, ia, mism = {}, {}, []
+for line in open(sys.argv[1], encoding='latin-1'):
+    m = re.match(r'\*PaperDimension\s+([^:]+):\s*"?([\d.]+)\s+([\d.]+)', line)
+    if m: pd[m.group(1)] = (float(m.group(2)), float(m.group(3)))
+    m = re.match(r'\*ImageableArea\s+([^:]+):\s*"([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)"', line)
+    if m: ia[m.group(1)] = tuple(float(m.group(i)) for i in (2,3,4,5))
+for k, (w, h) in pd.items():
+    b = ia.get(k)
+    if not b: continue
+    if abs(b[0]) > 0.001 or abs(b[1]) > 0.001 or abs(b[2]-w) > 0.001 or abs(b[3]-h) > 0.001:
+        mism.append(f"{k}: ImageableArea {b} != full page 0 0 {w} {h}")
+print("\n".join(mism))
+PY
+)"
+        if [ -n "$mismatch" ]; then
+            warn "driver PPD has non-full-page *ImageableArea -- output WILL ghost:"
+            echo "$mismatch" | sed 's/^/    /' >&2
+        else
+            log "Geometry check OK: all *ImageableArea match *PaperDimension (full page)."
+        fi
+    fi
 }
 
 install_ensure_script() {
@@ -806,9 +900,11 @@ create_queues() {
 # ---------------------------------------------------------------------------
 sanitize_shim_ppd() {  # sanitize_shim_ppd <in> <out>
     local in="$1" out="$2"
-    # Keep every keyword line except ones naming a borderless size, and drop
-    # UIConstraints that reference those sizes (they would dangle otherwise).
-    sed -E "/$BORDERLESS_RE/d" "$in" > "$out"
+    # Drop only *PageSize/*PageRegion/*ImageableArea/*PaperDimension lines
+    # whose SIZE NAME contains a borderless token, plus any UIConstraints that
+    # would then dangle. Everything else passes through untouched.
+    sed -E "/^\*(PageSize|PageRegion|ImageableArea|PaperDimension|DefaultImageableArea|DefaultPageSize|DefaultPageRegion)\b.*${BORDERLESS_RE}/d;
+            /UIConstraints:.*${BORDERLESS_RE}/d" "$in" > "$out"
     # Pin defaults: first PageSize keyword after DefaultPageSize is the default.
     local def
     def="$(sed -n 's/^\*DefaultPageSize:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$out" | head -1)"
@@ -853,13 +949,17 @@ verify() {
     echo "Test print (A4, duplex long edge -- use the CLASSIC queue, see note below):"
     echo "  lp -d $DUPLEX_QUEUE -o sides=two-sided-long-edge <file.pdf>"
     echo
-    echo "NOTE: duplex on '$PRINTER_NAME' (Printer Application / PAPPL) renders a"
-    echo "      ghost. libpappl pins *ImageableArea to a 4pt/12pt inset while"
-    echo "      245igdirf declares the full sheet in PJL, so the uninitialised"
-    echo "      page edge picks up leftover data from the previous page. Use"
-    echo "      '$DUPLEX_QUEUE' (classic usb:// + vendor full-page ImageableArea)"
-    echo "      for duplex; '$PRINTER_NAME' is fine for simplex and is the"
-    echo "      CUPS-3.0-proof path."
+    echo "NOTE: both queues now render simplex AND duplex correctly."
+    echo "      The critical invariant is that the driver's *ImageableArea equals"
+    echo "      *PaperDimension for every size -- 245igdirf declares the full sheet"
+    echo "      in PJL, so any inset *ImageableArea leaves the raster shorter than"
+    echo "      the canvas and the page gains a 'ghost' band across the bottom."
+    echo "      install_ppds() enforces this; if you ever edit a retrofit PPD by"
+    echo "      hand, re-run this installer."
+    echo
+    echo "      '$DUPLEX_QUEUE' uses the classic usb:// backend and breaks under"
+    echo "      CUPS 3.0; '$PRINTER_NAME' is the CUPS-3.0-proof path. Prefer the"
+    echo "      latter when it is available."
 }
 
 # ---------------------------------------------------------------------------

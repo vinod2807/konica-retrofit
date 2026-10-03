@@ -1,49 +1,36 @@
-# Konica Minolta 206 — PAPPL/legacy-printer-app raster "ghosting" bug
+# Konica Minolta 206 — PAPPL "ghosting" bug: root cause and fix
 
-**Status:** root-caused to a high-confidence hypothesis, **workaround in place**
+**Status:** **root-caused and fixed**, verified on paper
 **Date:** 2026-10-03
-**Author:** vinod2807 (with AI assistant)
-**Purpose:** this document is written to be handed to other experts/AI systems for
-independent review. It contains the full evidence chain, the hypotheses that were
-tested and **ruled out**, and an explicit list of open questions (§10).
+**Supersedes:** the earlier "geometry mismatch, root cause not fully explained"
+draft of this document. Two of its claims were wrong; see §9.
 
 ---
 
-## 1. Executive summary
+## 1. Summary
 
-Two printing paths drive the same physical printer. One produces correct output,
-the other produces a visual artefact we call **"ghosting"** — a band across the
-lower part of the sheet that repeats content which should not be there.
+Printed pages from the Printer Application queue (`konica206uri`) carried a
+**ghost** — a band across the lower part of the sheet repeating content that
+should not be there. It affected simplex and duplex alike.
 
-| Path | Scheduler | Simplex | Duplex (long-edge) |
+**Root cause:** `245igdirf` always declares the **full** sheet in PJL
+(`PAPERWIDTH=4958`, `PAPERLENGTH=7016`), but the raster it receives is sized
+from the media collection's *imageable area*, which comes from the driver PPD's
+`*ImageableArea`. When that value is inset, the raster is **shorter and narrower
+than the canvas the printer was told about**, so the image is rendered into the
+wrong vertical extent and already-decoded scanlines reappear lower down.
+
+**Fix:** force `*ImageableArea` to equal `*PaperDimension` for **every** paper
+size in the PAPPL driver PPD. The installer now does this automatically and
+verifies it.
+
+Measured, same filter, same document, two queues:
+
+| Path | Raster fed to `245igdirf` | PJL canvas | Result |
 |---|---|---|---|
-| `KONICA_MINOLTA_206` | classic CUPS | **clean** | **clean** |
-| `konica206uri` | `legacy-printer-app` (PAPPL) | **ghosts** | **ghosts** |
-
-The single variable that tracks correctness is the **`*ImageableArea`** reported to
-the driver:
-
-```
-konica206uri    (driverless shim)  *ImageableArea A4: "3.996850393701 11.990551181102 591.27874015748 829.899212598425"   ← 4pt/12pt inset
-KONICA_MINOLTA_206 (vendor PPD)     *ImageableArea A4/A4: "0 0 595 842"                                                 ← full page
-```
-
-`libpappl` **hardcodes** the inset and ignores every PPD-level override (three
-tested, §6). The vendor filter `245igdirf` always declares the **full** sheet in
-PJL (`PAPERWIDTH=4958`, `PAPERLENGTH=7016` = 595.0 × 841.9 pt). So on the PAPPL
-path the raster the printer receives is geometrically smaller than the page the
-printer is told it is, and the mismatch shows up as content in the wrong vertical
-region.
-
-The classic queue honours the PPD's `*ImageableArea`, so the vendor's full-page
-value makes raster and declared page agree, and output is correct.
-
-**Workaround:** use `KONICA_MINOLTA_206` for all printing. It is now the default.
-`konica206uri` is retained only as the CUPS-3.0-proof path.
-
-**We are asking for help with §10** — specifically whether the inset geometry is
-really the whole story, because §7 shows the ghost is a *copy of the current
-page*, which pure "uninitialised buffer" does not explain.
+| PAPPL, inset `ImageableArea` | **4860 × 6816** | 4958 × 7016 | **ghost** (height 200px / 2.9% short) |
+| PAPPL, full-page `ImageableArea` | **4961 × 7016** | 4958 × 7016 | **clean** |
+| Classic CUPS, full-page `ImageableArea` | **4961 × 7016** | 4958 × 7016 | **clean** |
 
 ---
 
@@ -51,141 +38,26 @@ page*, which pure "uninitialised buffer" does not explain.
 
 | Component | Value |
 |---|---|
-| OS | Ubuntu 26.04.1 LTS (resolute) |
-| Kernel | 7.0.0-38-generic (was 7.0.0-31 at time of initial testing; rebooted mid-investigation) |
-| CUPS | 2.4.16-1ubuntu1.3 |
-| cups-filters | 2.0.1-0ubuntu4.1 |
+| OS / kernel | Ubuntu 26.04.1 LTS / 7.0.0-38-generic |
+| CUPS / cups-filters | 2.4.16-1ubuntu1.3 / 2.0.1-0ubuntu4.1 |
 | Printer Application | `legacy-printer-app` 1.0~b2-0ubuntu8 (pappl-retrofit 1.0b2) |
 | libpappl | 1.4.9-0ubuntu2 |
 | Vendor driver | `konica-minolta-245igdi-cups` 2.01 |
 | Vendor filter | `/usr/local/lib/konica/KonicaMinolta/245igdi/Filters/245igdirf` |
 | Filter SHA-256 | `0548f3f3e20fae1e604e3bbe5464aedf5fbd8ff283f8173359f56153ce98a4d3` |
-| Filter build | ELF 64-bit LSB x86-64, dynamically linked, not stripped |
-| `driverless` | `/usr/bin/driverless` (cups-filters 2.0.1) |
-
-### Printer
-
-| Property | Value |
-|---|---|
-| Model | Konica Minolta 206 (bizhub 206i class), GDI laser |
-| USB VID:PID | `132b:232b` |
-| USB serial | `A8A6041029423` |
-| Interface / endpoint | interface 1, bulk OUT `0x01` |
-| Device URI | `usb://KONICA%20MINOLTA/206?serial=A8A6041029423&interface=1` |
-
-### Architecture
+| Printer | Konica Minolta 206, USB `132b:232b`, serial `A8A6041029423`, interface 1 |
+| Paper loaded | A4 only (the printer errors on other sizes without the paper) |
 
 ```
-GUI app / lp
-    │  PDF
-    ▼
-CUPS 2.4.16
-    ├── queue KONICA_MINOLTA_206 ──► usb backend ──► 245igdirf ──► USB   [WORKS]
-    └── queue konica206uri ──► IPP ──► legacy-printer-app (PAPPL 1.4.9)
-                                        │  application/vnd.cups-raster
-                                        ▼
-                                     245igdirf ──► custom libusb backend ──► USB  [GHOSTS]
-```
-
-The PAPPL path uses a repo-provided custom USB backend
-(`/usr/local/libexec/konica-backend/usb`, libusb-only, no libcups, writes in
-≤8192-byte chunks) because the classic CUPS USB backend wedge the printer on
-large writes.
-
----
-
-## 3. What was implemented (before the bug was found)
-
-The repository `vinod2807/konica-retrofit` was installed on a clean Ubuntu 26.04
-machine. Four installer bugs had to be fixed first (details in that repo's
-README §7.1):
-
-1. **`avahi-daemon` not running** → PAPPL aborts at startup with
-   `Unable to register system, is the Avahi daemon running?`
-2. **`wait_for_app()` deadlock** — it waited for the queue that `create_queues()`
-   is supposed to create, so on a fresh machine it always timed out and silently
-   skipped queue creation.
-3. **Stale hardcoded driver name** — `legacy-printer-app drivers` lists user-added
-   PPDs with an extra `-user-added` token (`...-retrofit-user-added-en`) but
-   `legacy-printer-app add -m` only accepts the plain name (`...-retrofit-en`).
-4. **`konica206uri-ppd` aborted every job** — it used the PAPPL *driver* PPD whose
-   `*cupsFilter: ... 245igdirf` made CUPS run the GDI filter locally, so PAPPL
-   received `application/vnd.printer-specific` instead of raster.
-
-Paper handling per the owner's requirements: **A4 + one-sided (simplex) as
-default**, duplex selectable, **24 paper sizes**, **no borderless sizes**.
-
-The CUPS-facing shim PPD is generated with `driverless` from the Printer
-Application, as requested:
-
-```
-$ driverless ipp://localhost:8000/ipp/print/konica206uri > shim.ppd
-  24 *PageSize entries
-  *DefaultPageSize: A4
-  *DefaultDuplex:   None
-  0 matches for /bleed|borderless/i
+CUPS ─┬─ konica206uri ──IPP──► legacy-printer-app ──raster──► 245igdirf ──► libusb backend ──► USB
+      └─ KONICA_MINOLTA_206 ───────────────────────────────► 245igdirf ──► cups usb backend ──► USB
 ```
 
 ---
 
-## 4. The bug
+## 3. The defect, in numbers
 
-### 4.1 Symptom
-
-Printed pages carry a **band of repeated content across the lower portion of the
-sheet**, in the region that should be blank.
-
-Two independent observations:
-
-**(a) Duplex, 2-page test** (`ghost.pdf`: page 1 = black bar on the **left**,
-page 2 = black bar on the **right**). Both sides of the sheet show their own page
-*plus* faint leftover content from the other page. Scanning both sides showed the
-extra bars sit at opposite edges of the sheet — consistent with a single extra
-printed band near the sheet edge appearing on both faces.
-
-**(b) Real 1-page PDF** (`4_Door_and_Saftey_Grill_Quotation.pdf`, a quotation
-document). Printed **duplex, first 2 pages**. Page 1: the quotation renders
-correctly — letterhead, item table (Door / Safety Grill / Front Door / Ladder /
-Setwork), Sub Total, GST 18%, Total, and the sign-off — then a **band across the
-bottom repeats the same page's `4. Ladder | - | - | - | 5,000` row**.
-
-*(A scan of this sheet was the reference image for this report. On request it can
-be re-supplied; the textual description above is sufficient to reproduce.)*
-
-### 4.2 The critical observation
-
-In case (b) the ghosted content is a copy of **the current page's own middle
-section**, *not* data left over from a previous job. This rules out a simple
-"stale buffer between jobs" explanation and means the page image itself is being
-rendered into the wrong vertical extent — the printer is wrapping or
-mis-positioning part of the raster.
-
-### 4.3 It is not duplex-specific
-
-A controlled A/B on the quotation PDF, byte-identical options, only the queue
-differing:
-
-```
-lp -d konica206uri      -o sides=one-sided -o PageSize=A4 quotation.pdf
-lp -d KONICA_MINOLTA_206 -o sides=one-sided -o PageSize=A4 quotation.pdf
-```
-
-| CUPS job | Queue | Result |
-|---|---|---|
-| `konica206uri-303` | PAPPL | **ghost** |
-| `KONICA_MINOLTA_206-305` | classic | **clean** |
-
-Simplex on `konica206uri` is affected too. (An earlier revision of this document
-wrongly recorded this as duplex-only, from misreading which job produced a sample
-scan. The A/B above is the corrected result.)
-
----
-
-## 5. Root-cause analysis
-
-### 5.1 The geometry mismatch
-
-`245igdirf` emits, per page:
+### 3.1 What the driver declares (identical on both paths)
 
 ```
 @PJL SET PAPER=A4
@@ -194,339 +66,247 @@ scan. The A/B above is the corrected result.)
 @PJL SET RESOLUTION=600
 ```
 
-`4958 / 600 × 72 = 595.0 pt` and `7016 / 600 × 72 = 841.9 pt` — i.e. the **full
-A4 sheet** (595.28 × 841.89 pt), at 600 dpi, with `PAPERWIDTH`/`PAPERLENGTH`
-expressed in 1/600-inch units.
+`4958 / 600 × 72 = 595.0 pt`, `7016 / 600 × 72 = 841.9 pt` → the **full A4 sheet**
+(595.28 × 841.89 pt), with the dimensions expressed in 1/600-inch units.
 
-The raster it receives is **not** full A4 on the PAPPL path:
+### 3.2 What the raster actually was
 
-```
-*ImageableArea A4: "3.996850393701 11.990551181102 591.27874015748 829.899212598425"
-                  └ 4.0pt L          └ 12.0pt B          └ 591.3 R        └ 829.9 T
-```
+Captured by temporarily wrapping `245igdirf` and `tee`-ing its stdin. The
+vendor filter's input is **not** CUPS raster (magic `3SaR`), so the geometry
+fields were located by scanning for plausible values rather than by a fixed
+struct offset. Two `u32` fields sit at offsets 376 and 380:
 
-So the printer is told the page is a full A4 sheet, but the image covers an area
-inset by 4 pt left/right and 12 pt top/bottom. The two disagree about where the
-bottom of the image lies, and content lands in a band it should not occupy.
-
-### 5.2 libpappl ignores the PPD
-
-Three separate PPD-level attempts to make the PAPPL path use full-page geometry.
-In every case the regenerated `driverless` shim was **byte-identical**:
-
-| PPD change | shim `*ImageableArea A4` after restart |
-|---|---|
-| baseline | `"3.996850393701 11.990551181102 591.27874015748 829.899212598425"` |
-| `*ImageableArea A4/A4: "0 0 595 842"` | *unchanged* |
-| `*DefaultUseHWMargins: False` | *unchanged* |
-| `*HWMargins: 0 0 0 0` (explicit) | *unchanged* |
-
-Source confirmation — `pappl-retrofit/pappl-retrofit.c` reads `cupsBackSide` but
-nothing sets `ImageableArea` from the PPD's value in this path:
-
-```c
-/* pappl-retrofit.c:1874 */
-ppd_attr = ppdFindAttr(ppd, "cupsBackSide", NULL);
-```
-
-The inset appears to be a fixed PAPPL default (the driverless-generated shim
-reports the same numbers for every paper size, scaled proportionally, which is
-consistent with a constant default margin rather than a per-device value).
-
-### 5.3 The classic queue is clean for a structural reason
-
-`cupsd` **does** honour `*ImageableArea`. With the vendor's full-page value the
-raster matches `PAPERWIDTH`/`PAPERLENGTH` exactly, and output is correct. Proof by
-injecting the inset value into the classic queue's PPD:
-
-| Queue | `*ImageableArea A4/A4` | Duplex long-edge |
-|---|---|---|
-| `KONICA_MINOLTA_206` | `"0 0 595 842"` (vendor) | **clean** (jobs 288, 296) |
-| `KONICA_MINOLTA_206` | `"6 12 589 830"` (inset, injected) | **ghost** (job 295) |
-| `konica206uri` | inset (forced by libpappl) | **ghost** (jobs 6, 294) |
-
-The ghost follows the *geometry*, not the queue.
-
-### 5.4 Plausible mechanism
-
-Most likely: the JBIG-compressed raster is written with a plane/band geometry
-derived from the imageable area, while the printer's page canvas is sized from
-`PAPERLENGTH`. The mismatch causes the decoder to continue past the intended end
-of the image, wrapping or re-emitting already-decoded scanlines into the
-remaining strip of the page — producing a band that repeats content from earlier
-in the same page.
-
-This is consistent with §4.2 (the ghost is a copy of the current page) and with
-the ghost appearing at a **sheet edge** in the duplex case.
-
----
-
-## 6. Hypotheses tested and RULED OUT
-
-Recorded so they are not re-investigated.
-
-| # | Hypothesis | Test | Result |
+| Path | field @376 | field @380 | vs canvas 4958 × 7016 |
 |---|---|---|---|
-| 1 | Duplex mechanically broken (printer can't flip) | owner inspected output | **Refuted.** Flip works; 1 sheet out, page 2 on the correct reverse. |
-| 2 | Hardware lacks a duplexer | owner inspected output | **Refuted.** Duplex flip verified working; and it only fails on one queue. |
-| 3 | Stream corruption from a mid-stream `EOJ` | parsed all `IMAGELEN` frames | **Refuted as *the* cause** — see §7. A structurally clean stream still ghosted (Draft job). |
-| 4 | `cupsBackSide` rotation | `Rotated` vs `Normal` vs removed | **Refuted.** Only changes *binding* (`Rotated`=long-edge, `Normal`=short-edge). Ghost present in all three. |
-| 5 | Resolution / data volume | Draft (lower res) vs Normal | **Refuted.** Draft produced a clean single-`EOJ` stream and *still* ghosted. |
-| 6 | Band framing / `IMAGELEN` accounting | full parser, §7 | **Refuted.** Frames accounted for correctly; and a clean stream ghosted. |
-| 7 | `*DefaultUseHWMargins` | set `False` | **Refuted.** No effect on reported geometry. |
-| 8 | Explicit `*HWMargins` | `*HWMargins: 0 0 0 0` | **Refuted.** No effect on reported geometry. |
-| 9 | Driver-name / queue selection mismatch | verified PPD paths, `cupsFilter` | **Refuted.** Both queues use the same `245igdirf` binary. |
-| 10 | Kernel / USB transport | rebooted into 7.0.0-38 | **Refuted.** Reproduces identically on the new kernel. |
-| 11 | `cupsCompression` / JBIG choice | inspected OCM | **Inconclusive** — `COMPRESS=JBIG` is emitted by the vendor OCM with no PPD knob found to change it. **Still open, see §10 Q3.** |
+| PAPPL, inset | 4860 | **6816** | width −98 px (2.0%), height **−200 px (2.9%)** |
+| Classic / fixed PAPPL | 4961 | **7016** | width +3 px (0.06%), height **exact** |
+
+### 3.3 Why the inset appeared — the job's own `media-col`
+
+The filter's argv carries the exact media collection PAPPL resolved:
+
+```
+media-col={media-key=iso_a4_210x297mm_auto_plain
+           media-size={x-dimension=21000 y-dimension=29700}
+           media-bottom-margin=423 media-left-margin=212
+           media-right-margin=212 media-top-margin=423 ...}
+```
+
+All in 1/100 mm:
+
+```
+imageable = (21000 − 212 − 212) × (29700 − 423 − 423)
+          = 20576 × 28854  (1/100 mm) = 8.101 × 11.361 in
+          → at 600 dpi     = 4860 × 6816 px      ← the raster we measured
+canvas    = 21000 × 29700 (1/100 mm) = A4        ← 4960 × 7016 px, what PJL declares
+```
+
+`media-left-margin=212` / `media-bottom-margin=423` are exactly `6 pt` / `12 pt`
+— i.e. **the `6 12 589 830` inset from the `real-margin` retrofit PPD**. The
+raster geometry is fully explained by the PPD's `*ImageableArea`.
+
+### 3.4 The bug was bigger than A4
+
+The shipped `KonicaMinolta-206-fullbleed.ppd` is **not** uniformly full-page.
+Auditing all 24 sizes:
+
+```
+FULL-PAGE (safe)  : 2  -> A4, Letter
+INSET (6pt/12pt)  : 15 -> A3, A5, A6, B4, B5, B6, Statement, Legal, Tabloid,
+                         Executive, 16K, 8K, Comm10, EnvC6, EnvDL
+```
+
+So an A4-only test would have looked like a pass while 15 other sizes still
+ghosted. The fix normalises **all** sizes.
 
 ---
 
-## 7. Stream analysis (data, not speculation)
+## 4. Why the earlier PPD experiments appeared to do nothing
 
-A frame parser was written to walk the PJL stream, treating each
-`@PJL SET IMAGELEN=n` as exactly `n` bytes of following data. Verbatim output for
-the 2-page duplex ghost job:
+Worth recording, because it cost real time and produced a wrong conclusion.
+
+The Printer Application persists each printer's media collection in
+`/var/lib/legacy-printer-app/legacy-printer-app.state`:
 
 ```
-@PJL SET COMPRESS=JBIG
-@PJL SET COVER=OFF
-@PJL SET HOLD=OFF
-@PJL SET SECTION=OFF
-@PJL SET COPIES=1
-@PJL SET PAGESTATUS=START
-@PJL SET DUPLEX=ON
-@PJL SET BINDING=SHORTEDGE
-@PJL SET PAPER=A4
-@PJL SET PAPERWIDTH=4958
-@PJL SET PAPERLENGTH=7016
-@PJL SET MEDIASOURCE=AUTO
-@PJL SET MEDIATYPE=PLAIN
-@PJL SET RESOLUTION=600
-@PJL SET IMAGELEN=32768   [+32768 bytes data]
-@PJL SET IMAGELEN=8344    [+8344 bytes data]
+media-col-default bottom="423" left="141" length="29700" name="iso_a4_210x297mm"
+                  right="141" source="auto" top="423" type="plain" width="21000"
+```
+
+`423`/100 mm = 12.0 pt and `141`/100 mm = 4.0 pt — the classic **cups-filters
+default margins**. That is where the "libpappl reports a 4pt/12pt inset"
+observation came from.
+
+However, re-testing showed this state value is **not** what sizes the raster:
+
+| Action | `media-col-default` margins | Job raster |
+|---|---|---|
+| restart service only | 423 / 141 (unchanged) | unchanged |
+| delete + re-add printer | 423 / 141 (**still unchanged**) | — |
+| driver PPD `*ImageableArea` → full page | 423 / 141 | **4860×6816 → 4961×7016** ✓ |
+
+So `media-col-default` is a sticky cups-filters default that never follows the
+PPD, while the **per-job** `media-col` *does* follow the PPD's `*ImageableArea`.
+Only the latter matters for output.
+
+### 4.1 Rounding trap
+
+While testing, setting `*ImageableArea A4/A4: "0 0 595.276 841.89"` against
+`*PaperDimension A4/A4: "595 842"` made PAPPL reject the driver outright:
+
+```
+E [Printer konica206uri] Invalid driver left/right margins value -9.
+```
+
+595.276 pt is *wider* than 595 pt, so the right margin goes negative. This is the
+same class of failure as the `-70` error in the project's original design doc
+(Issue 2). **`*ImageableArea` must match `*PaperDimension` byte-for-byte** (both
+`"595 842"` for A4). The installer derives one from the other to guarantee this.
+
+---
+
+## 5. The fix
+
+In `install_ppds()`:
+
+1. **Normalise geometry** — rewrite every `*ImageableArea` to
+   `"0 0 <W> <H>"` using that size's `*PaperDimension`. Regexes match size keys
+   with `[^:]+`, not `\S+`, because keys like
+   `FLS_8D125X13D25/FLS 8 1/8 x 13 1/4` contain spaces.
+2. **Guard rail** — a Python check re-reads the PPD and warns if any
+   `*ImageableArea` still differs from its `*PaperDimension`.
+3. **Default driver** — `DRIVER_MATCH` now defaults to `full-bleed-retrofit`,
+   with a comment explaining this is a correctness requirement, not aesthetics.
+4. **Shim sanitising** — the full-page driver exposes a `.Borderless` variant of
+   every size (48 entries instead of 24). `sanitize_shim_ppd()` drops any size
+   declaration whose name contains a borderless token (case-insensitively), so
+   the shim keeps the 24 standard sizes the owner asked for.
+
+Result on the target machine:
+
+```
+==> normalised 24 *ImageableArea entries to full page
+==> PAPPL driver PPD geometry: 24 sizes, 24 full-page
+==> Geometry check OK: all *ImageableArea match *PaperDimension (full page).
+==> Shim PPD: 24 paper sizes, default A4
+```
+
+---
+
+## 6. Verified on paper
+
+| Check | Queue | Result |
+|---|---|---|
+| Duplex long-edge, A4 | `konica206uri` | **clean** (job 310) |
+| Simplex, real quotation PDF, pure defaults | `konica206uri` | **clean** (job 311) |
+| Duplex long-edge, real 2-page .docx | `KONICA_MINOLTA_206` | clean (job 297) |
+| Simplex, real quotation PDF | `KONICA_MINOLTA_206` | clean (jobs 301, 305) |
+
+Both queues now render simplex **and** duplex correctly.
+
+**Not verified on paper:** non-A4 sizes. The machine has only A4 loaded and the
+printer reports a page-size error otherwise, so A3/A5/Legal/etc. are correct by
+construction (same full-page geometry as A4) but untested.
+
+---
+
+## 7. How to reproduce / re-diagnose
+
+**Geometry measurement** (the decisive check). Wrap the filter, print one job,
+read offsets 376/380 of its input:
+
+```bash
+D=/usr/local/lib/konica/KonicaMinolta/245igdi/Filters
+sudo cp $D/245igdirf $D/245igdirf.real
+sudo tee $D/245igdirf >/dev/null <<'EOF'
+#!/bin/bash
+D=/usr/local/lib/konica/KonicaMinolta/245igdi/Filters
+mkdir -p /tmp/cap; : > /tmp/cap/argv.txt
+for a in "$@"; do echo "ARG: $a" >> /tmp/cap/argv.txt; done
+tee /tmp/cap/stdin.ras | $D/245igdirf.real "$@"
+rc=$?
+i=0; for a in "$@"; do i=$((i+1)); [ -f "$a" ] && cp "$a" /tmp/cap/arg${i}.ras 2>/dev/null; done
+exit $rc
+EOF
+sudo chmod 755 $D/245igdirf && sudo systemctl restart legacy-printer-app
+lp -d konica206uri -o sides=one-sided -o PageSize=A4 file.pdf
+python3 -c "
+import struct; b=open('/tmp/cap/stdin.ras','rb').read(8192)
+print('raster %d x %d  (canvas must be 7016 high)' % (
+  struct.unpack_from('<I',b,376)[0], struct.unpack_from('<I',b,380)[0]))"
+sudo rm $D/245igdirf.real && sudo mv $D/245igdirf.real $D/245igdirf   # restore
+```
+
+**Invariant check** (no printing needed):
+
+```bash
+python3 - /var/lib/legacy-printer-app/ppd/KonicaMinolta-206-fullbleed.ppd <<'PY'
+import re, sys
+pd, ia = {}, {}
+for line in open(sys.argv[1], encoding='latin-1'):
+    m = re.match(r'\*PaperDimension\s+([^:]+):\s*"?([\d.]+)\s+([\d.]+)', line)
+    if m: pd[m.group(1)] = (float(m.group(2)), float(m.group(3)))
+    m = re.match(r'\*ImageableArea\s+([^:]+):\s*"([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)"', line)
+    if m: ia[m.group(1)] = tuple(float(m.group(i)) for i in (2,3,4,5))
+bad = [k for k,(w,h) in pd.items() if ia.get(k) and
+       (abs(ia[k][0])>.001 or abs(ia[k][1])>.001 or abs(ia[k][2]-w)>.001 or abs(ia[k][3]-h)>.001)]
+print("non-full-page sizes:", bad or "none")
+PY
+```
+
+> Caution: naive regex over `debug-jobdata-*.prn` yields **false positives**,
+> because JBIG-compressed binary can contain byte sequences resembling PJL
+> directives. Always consume exactly `IMAGELEN` bytes after each `IMAGELEN=`.
+
+---
+
+## 8. Related, still-open observation
+
+Some duplex streams contain a mid-job end-of-job marker with orphaned data
+after it:
+
+```
+@PJL SET IMAGELEN=11444   [+11444 bytes]
 @PJL SET PAGESTATUS=END
-@PJL SET PAGESTATUS=START
-@PJL SET DUPLEX=ON
-@PJL SET BINDING=SHORTEDGE
-@PJL SET PAPER=A4
-@PJL SET PAPERWIDTH=4958
-@PJL SET PAPERLENGTH=7016
-@PJL SET MEDIASOURCE=AUTO
-@PJL SET MEDIATYPE=PLAIN
-@PJL SET RESOLUTION=600
-@PJL SET IMAGELEN=32768   [+32768 bytes data]
-@PJL SET IMAGELEN=11444   [+11444 bytes data]
-@PJL SET PAGESTATUS=END
-'@PJL EOJ'                                    ← end-of-job + UEL appears here
-@PJL SET IMAGELEN=31844   [+31844 bytes data]
-@PJL SET PAGESTATUS=END
-'@PJL EOJ'
-TOTAL FILE BYTES: 148621
+@PJL EOJ                             ← job ends here
+[30714 bytes of unheadered image data]
+@PJL SET IMAGELEN=31844   [+31844 bytes]
 ```
 
-Two anomalies:
-
-1. **`@PJL EOJ` + `\x1b%-12345X` (UEL) appears mid-job**, after page 2's second
-   frame, with ~30 KB of image data following it and no valid header. Total
-   unaccounted bytes: 30714. This looks like the driver's async encode queue
-   (`EncodeQueueWrite` / `ChunkExtendWrite` symbols are present in the OCM)
-   flushing after the trailer.
-2. **Frame sizes are asymmetric between pages**: page 1 = `[32768, 8344]`
-   (41112 B), page 2 = `[32768, 11444]` + trailing `[31844]`. For two pages of
-   near-identical black-bar content this is a large discrepancy.
-
-**However, anomaly 1 is not the cause of the ghost**: the Draft-quality job
-produced a structurally clean stream (single `EOJ`, 21 trailing bytes = just the
-UEL) and *still ghosted*. Both anomalies are reported here because they may be a
-*second*, independent defect, or may be a symptom of the same root cause.
-
-Note also: the ghost appears on **simplex**, where there is only one page and no
-"previous page" at all. This further decouples the ghost from the `EOJ`
-anomaly.
+This looks like the driver's async encode queue (`EncodeQueueWrite`,
+`ChunkExtendWrite` in `mtorf.ocm`) flushing after the trailer. It is **not** the
+ghosting cause — a structurally clean stream (single `EOJ`, Draft quality) still
+ghosted. It may still be a separate defect worth reporting upstream.
 
 ---
 
-## 8. Current working configuration
+## 9. Corrections to the earlier draft
 
-```
-$ lpstat -d
-system default destination: KONICA_MINOLTA_206
+Recorded so the wrong conclusions are not carried forward.
 
-$ lpoptions -p KONICA_MINOLTA_206 | tr ' ' '\n' | grep -E '^(sides|media|PageSize|print-color-mode)='
-media=iso_a4_210x297mm
-PageSize=A4
-print-color-mode=monochrome
-sides=one-sided
+| Earlier claim | Reality |
+|---|---|
+| "libpappl **hardcodes** the 4pt/12pt inset and ignores the PPD" | **Wrong.** The per-job `media-col` follows the PPD's `*ImageableArea` exactly. The 4pt/12pt values in `legacy-printer-app.state` are a separate, sticky cups-filters *default* that never affects the raster. |
+| "Ghost affects simplex and duplex" | **Right**, but the first reading of a sample scan suggested duplex-only; a controlled A/B settled it. |
+| "Only 2 of 24 sizes are full-page" (i.e. the fix was A4-only) | **Right**, and worse than first thought — the shipped retrofit PPDs are internally inconsistent, so an A4-only test would have passed while 15 sizes still ghosted. |
+| "Ghost is unexplained leftover buffer data" | **Wrong.** It is the raster being sized from the imageable area while the driver declares the full sheet; a same-page copy is exactly what that mismatch produces. |
 
-$ lpoptions -p KONICA_MINOLTA_206 -l | grep -iE 'duplex|^PageSize'
-PageSize/Paper Size: A3 *A4 A5 A6 B4 B5 B6 Letter Statement Legal Tabloid Executive
-  16K 8K Comm10 EnvPersonal EnvC6 EnvDL FabFoldGermanLegal FLS_220X330
-  FLS_8D125X13D25 FLS_8X13 FLS_8D25X13 FLS_8D5X13D5          (24 sizes)
-Duplexer/Duplex Unit: *true false
-Duplex/Double Sides: *None DuplexNoTumble DuplexTumble
-```
-
-Usage:
-
-```bash
-# simplex (A4, one-sided) — the defaults
-lp -d KONICA_MINOLTA_206 file.pdf
-
-# duplex, long edge
-lp -d KONICA_MINOLTA_206 -o sides=two-sided-long-edge file.pdf
-
-# duplex, short edge
-lp -d KONICA_MINOLTA_206 -o sides=two-sided-short-edge file.pdf
-
-# other sizes (24 available)
-lp -d KONICA_MINOLTA_206 -o PageSize=A5 file.pdf
-lp -d KONICA_MINOLTA_206 -o PageSize=Legal file.pdf
-```
-
-All four combinations (simplex / long-edge / short-edge / non-default size) plus
-a bare-defaults job have been confirmed **on paper** by the owner.
+Credit: the decisive step — instrumenting the filter to read the real raster
+geometry instead of inferring it — came from an external review
+(`pappl-ghosting-analysis.md`, Claude). Its core hypothesis (raster dimensions
+mismatch, not stale buffers) was correct and is what §3 now confirms.
 
 ---
 
-## 9. How to reproduce
-
-**Ghost (PAPPL path):**
-```bash
-F=/path/to/quotation.pdf
-lp -d konica206uri -o sides=one-sided -o PageSize=A4 "$F"     # simplex ghosts too
-lp -d konica206uri -o sides=two-sided-long-edge "$F"          # duplex ghosts
-```
-
-**Clean (classic path):**
-```bash
-lp -d KONICA_MINOLTA_206 -o sides=one-sided -o PageSize=A4 "$F"          # clean
-lp -d KONICA_MINOLTA_206 -o sides=two-sided-long-edge "$F"               # clean
-```
-
-**Minimal synthetic test** (`ghost.pdf`, 2 pages, page 1 bar left, page 2 bar
-right) — makes ghosting unambiguous:
-```bash
-printf '%%!PS-Adobe-3.0\n%%%%BoundingBox: 0 0 595 842\n%%%%Page: 1 1\ngsave 0 setgray 60 100 200 640 rectfill grestore showpage\n%%%%Page: 2 2\ngsave 0 setgray 330 100 205 640 rectfill grestore showpage\n%%%%EOF\n' > ghost.ps
-gs -dNOPAUSE -dBATCH -dSAFER -sDEVICE=pdfwrite -sOutputFile=ghost.pdf ghost.ps
-```
-
-**Inspect reported geometry:**
-```bash
-driverless ipp://localhost:8000/ipp/print/konica206uri | grep -E '^\*ImageableArea A4:|^\*PaperDimension A4:'
-grep '^\*ImageableArea A4/A4:' /etc/cups/ppd/KONICA_MINOLTA_206.ppd
-```
-
----
-
-## 10. Open questions — please review
-
-These are what we would most like a second opinion on.
-
-**Q1. Is the geometry mismatch sufficient to explain a *copy of the same page*
-appearing in a lower band?** Our working theory is that the raster plane geometry
-and the page canvas disagree, so the JBIG decoder continues past the intended
-image end and re-emits scanlines. But a pure "uninitialised buffer" story does
-*not* explain repeated content, and the ghost occurs on single-page simplex jobs
-where no previous page exists. **Is there a more likely mechanism we have missed —
-e.g. the driver computing band height from the imageable area while the printer
-derives canvas height from `PAPERLENGTH`, causing a partial wrap?**
-
-**Q2. Where exactly does libpappl's 4 pt / 12 pt default margin come from?**
-It is identical for every paper size and immune to `*ImageableArea`,
-`*DefaultUseHWMargins` and `*HWMargins`. Is this a hardcoded
-`ppd->default_imageable_area` fallback, a CUPS `cupsDefaultMargin`, or a
-`ppd-cups` quirk? **Is there any supported way to make PAPPL report the PPD's
-`ImageableArea`?** If yes, the bug is fixable without changing queues.
-
-**Q3. Could disabling JBIG compression avoid it?** `COMPRESS=JBIG` is emitted
-from the vendor OCM. We found no PPD/OCM knob to change it. If the wrap is a
-JBIG-plane artefact, uncompressed or CCITT G4 output might avoid it — worth
-knowing before filing upstream.
-
-**Q4. Is the mid-stream `@PJL EOJ` + ~30 KB orphaned data a separate bug?** It
-appears in some duplex streams but not all, and a clean stream still ghosted. We
-suspect a race in the driver's async encode queue. **Is this worth a separate
-upstream report to Konica/OpenPrinting, and does it plausibly share a root cause
-with Q1?**
-
-**Q5. Should this be reported upstream, and to whom?** The most likely candidates
-are (a) `OpenPrinting/pappl-retrofit` — `*ImageableArea` not honoured, and (b)
-`OpenPrinting/libpappl` — hardcoded default margins. We have a minimal
-reproducer and a clean A/B. **Is there prior art on this?**
-
-**Q6. Is the "real margins" retrofit worth keeping at all?** The vendor PPD
-declares full-page `ImageableArea` for this printer. The repo's retrofit PPDs
-change it to `6 12 W-6 H-12` (and PAPPL originally *rejected* the zero-margin
-geometry outright — see the repo's design doc, Issue 2, error
-`Invalid driver left/right margins value -70`). Given that any inset geometry
-breaks output on this printer, **is the retrofit's margin change actively harmful
-here, and should the vendor full-page value be used everywhere?**
-
----
-
-## 11. Artefacts and file inventory
+## 10. Files
 
 | Path | Role |
 |---|---|
-| `/var/lib/legacy-printer-app/ppd/KonicaMinolta-206-real-margins.ppd` | PAPPL driver PPD (real margins). Inset `ImageableArea` is what libpappl reports. |
-| `/var/lib/legacy-printer-app/ppd/KonicaMinolta-206-fullbleed.ppd` | PAPPL driver PPD (vendor full-page geometry) |
-| `/etc/cups/ppd/KONICA_MINOLTA_206.ppd` | classic queue PPD — vendor full-page `ImageableArea`, `*DefaultDuplex: None` |
-| `/usr/local/share/konica206uri/konica206uri-driverless.ppd` | the `driverless`-generated shim (24 sizes, A4, `*DefaultDuplex: None`) |
-| `/usr/local/lib/konica/KonicaMinolta/245igdi/Filters/245igdirf` | vendor GDI filter (patchelf'd against vendored libcups) |
-| `/usr/local/lib/konica/KonicaMinolta/245igdi/Filters/mtorf.ocm` | vendor OCM config (source of `COMPRESS=JBIG`) |
-| `/usr/local/libexec/konica-backend/usb` | custom chunked libusb backend used by PAPPL |
-| `/usr/local/bin/ensure-konica206uri.sh` | persistence helper, wired as `ExecStartPost` |
-| `/var/spool/legacy-printer-app/debug-jobdata-konica206uri-*.prn` | PAPPL job streams (PJL + JBIG), used for §7 |
-| `/var/log/unattended-upgrades/unattended-upgrades.log` | confirmed no printing package was upgraded on 2026-10-03 |
-
-Debug streams can be parsed with:
-
-```python
-import re
-d = open('/var/spool/legacy-printer-app/debug-jobdata-konica206uri-N.prn','rb').read()
-i, n, out = 0, len(d), []
-while i < n:
-    if d[i:i+9] == b'@PJL SET ':
-        j = d.find(b'\r\n', i)
-        if j < 0: break
-        line = d[i:j].decode('latin1')
-        m = re.match(r'@PJL SET IMAGELEN=(\d+)', line)
-        if m:
-            ln = int(m.group(1)); out.append(f'{line}   [+{ln} bytes]'); i = j+2+ln; continue
-        out.append(line); i = j+2
-    elif d[i:i+5] == b'@PJL ':
-        j = d.find(b'\r\n', i)
-        if j < 0: break
-        out.append(repr(d[i:j].decode('latin1'))); i = j+2
-    else:
-        i += 1
-print('\n'.join(out))
-```
-
-> Caution for anyone re-running this: naive regex over the stream produces **false
-> positives**, because JBIG-compressed binary can contain byte sequences that look
-> like PJL directives. Always consume exactly `IMAGELEN` bytes after each
-> `IMAGELEN=` directive.
-
----
-
-## 12. Timeline of the investigation
-
-| Step | Action | Outcome |
-|---|---|---|
-| 1 | Installed repo on clean Ubuntu 26.04 | 4 installer bugs found and fixed |
-| 2 | Configured A4 + simplex default, 24 sizes, driverless shim PPD | simplex verified clean (data-stream level) |
-| 3 | Duplex verified from **job data only** — `DUPLEX=ON`, `BINDING=SHORTEDGE`, correct page count | **false confidence** — data stream looked right |
-| 4 | Owner printed a real duplex document | ghost reported |
-| 5 | A/B: `konica206uri` vs `KONICA_MINOLTA_206` | classic clean, PAPPL ghosts → path-specific |
-| 6 | Tested `cupsBackSide` Rotated/Normal | only changes binding; ghost persists |
-| 7 | Tested Draft resolution | clean stream, still ghosts → stream corruption refuted |
-| 8 | Parsed all `IMAGELEN` frames | found mid-stream `EOJ` + 30 KB orphaned data |
-| 9 | Switched default to classic queue; verified duplex long-edge on real docs | working configuration |
-| 10 | Owner reported ghost on a **1-page PDF** | initially misread as simplex-only |
-| 11 | Controlled A/B, identical options, both queues, **simplex** | ghost on PAPPL for simplex too; classic clean |
-| 12 | Rebooted into kernel 7.0.0-38; re-verified | reproduces identically — kernel-independent |
-
-**The main lesson:** steps 3–4. Job-data inspection (`DUPLEX=ON`, correct page
-count, filter exit status 0) was *necessary but not sufficient*. Every duplex
-defect found here was invisible in the data stream and only appeared on paper.
+| `/var/lib/legacy-printer-app/ppd/KonicaMinolta-206-fullbleed.ppd` | **active** PAPPL driver PPD; all 24 `*ImageableArea` normalised to full page |
+| `/var/lib/legacy-printer-app/ppd/KonicaMinolta-206-real-margins.ppd` | alternate PPD, real margins — **will ghost**, kept for reference |
+| `/etc/cups/ppd/KONICA_MINOLTA_206.ppd` | classic queue PPD, full-page geometry, `*DefaultDuplex: None` |
+| `/usr/local/share/konica206uri/konica206uri-driverless.ppd` | `driverless` shim: 24 standard sizes, A4, `*DefaultDuplex: None`, no borderless |
+| `/usr/local/lib/konica/KonicaMinolta/245igdi/Filters/245igdirf` | vendor filter (patchelf'd against vendored libcups) |
+| `/usr/local/lib/konica/KonicaMinolta/245igdi/Filters/mtorf.ocm` | vendor OCM (source of `COMPRESS=JBIG`) |
+| `/var/lib/legacy-printer-app/legacy-printer-app.state` | printer state incl. the sticky `media-col-default` margins |
+| `/var/spool/legacy-printer-app/debug-jobdata-*.prn` | PAPPL job streams (PJL + JBIG) |
