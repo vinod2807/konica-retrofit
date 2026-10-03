@@ -259,13 +259,44 @@ There is also a Debian/Ubuntu-specific kit for a fully manual install:
    `konica-minolta-245igdi-cups` package (already absent from current repos).
 4. **`*DefaultOCM_TonerSave: TRUE`** in both retrofit PPDs — this was the
    **black-page fix**; without it the driver prints solid-black pages.
-5. **A4 default, monochrome, 2-sided** are the defaults. The CUPS passthrough
-   queue now uses a **driverless PPD** generated from the Printer Application
-   (`driverless ipp://localhost:8000/...`), so GUI apps see **all** media sizes
-   the printer app supports (A3–A6, B4–B6, Letter, Legal, envelopes, ...), not
-   just A4. The internal `konica206-pdf-fullbleed.ppd` is only used as the
-   Printer Application's own PDF driver, not as the CUPS-facing PPD.
-6. **Package holds — optional, not currently applied.** Holds on
+5. **A4 default, monochrome, one-sided (simplex)**, with **duplex available**.
+   The CUPS passthrough queue uses a **driverless shim PPD** generated from the
+   Printer Application (`driverless ipp://localhost:8000/...`), so GUI apps see
+   **all** media sizes the printer supports (A3–A6, B4–B6, Letter, Legal,
+   envelopes, ...), not just A4.
+
+   Two deliberate deviations from the original 2026-08 snapshot, both driven by
+   the requirement for **normal (non-borderless) sizes with A4 + simplex as the
+   default**:
+
+   - **Rendering driver is `real-margin`, not `full-bleed`.**
+     `konica-minolta--206--real-margin-retrofit-en` gives
+     `*ImageableArea A4: "6 12 589 830"` (real 6pt/12pt margins) instead of the
+     full-bleed `"0 0 595 842"`. PAPPL rejects the vendor PPD's zero-margin
+     geometry anyway (see Issue 2 in the design doc). Both variants carry the
+     same 24 paper sizes and the same three duplex choices.
+   - **Simplex is the queue default; duplex is opt-in** via
+     `-o sides=two-sided-long-edge` / `-o sides=two-sided-short-edge`.
+
+   The driverless shim PPD is post-processed by `sanitize_shim_ppd()`: any
+   borderless entry is stripped, defaults are pinned to A4 / `None` /
+   duplexer-installed, and the shim keeps its `*cupsFilter2` pass-through lines
+   so CUPS never runs the GDI filter locally.
+
+   > The CUPS-facing queues use the **shim PPD**, *not*
+   > `KonicaMinolta-206-real-margins.ppd`. That file is the PAPPL *driver* PPD
+   > and its `*cupsFilter: ... 245igdirf` makes CUPS run the vendor GDI filter
+   > locally, so PAPPL then receives `application/vnd.printer-specific` instead
+   > of raster and the job aborts. `PPD_QUEUE_FILE` therefore defaults to empty
+   > and `create_queues()` points both queues at the generated shim.
+
+6. **`*DefaultDuplexer: true` forced on the retrofit PPDs.** The vendor PPD
+   ships `false` ("not installed"), and its own
+   `*UIConstraints: *Duplexer false <-> *Duplex DuplexNoTumble` rules then make
+   GUI apps hide the Duplex choice even though the 206's duplexer works. The
+   installer rewrites `*DefaultDuplexer` to `true` while leaving
+   `*DefaultDuplex: None` so the queue still defaults to simplex.
+7. **Package holds — optional, not currently applied.** Holds on
    `legacy-printer-app`, `libpappl-retrofit1`, `libpappl1t64`,
    `konica-minolta-245igdi-cups` were tested during hardening but **removed at
    the owner's request** (2026-08-16). They're unnecessary here: the driver is
@@ -376,8 +407,61 @@ Every file in the current `backup/konica-pappl-backup-20260818-1532/` snapshot i
   `232b`, USB device uses interface 1 / bulk OUT endpoint `0x01`.
 - `legacy-printer-app` 1.0~b2-0ubuntu8 (pappl-retrofit), `libpappl1t64` 1.4.9,
   driver `konica-minolta-245igdi-cups` 2.01.
-- PAPPL printer driver name: `konica-minolta--206--full-bleed-retrofit-en`.
-- Default printer: `konica206uri` (system + user).
+- PAPPL printer driver name: `konica-minolta--206--real-margin-retrofit-en`.
+- Default printer: `konica206uri` (system + user). The classic
+  `KONICA_MINOLTA_206` queue is kept as a fallback for banner/test-page PDFs
+  (see §5) but is **not** the default.
+- `avahi-daemon` is a hard dependency of the Printer Application — see §7.1.
+
+### 7.1 Installer bugs found and fixed on a fresh Ubuntu 26.04 machine
+
+Found while deploying this repo from scratch on 2026-10-03. All four are fixed
+in `install-konica-anylinux.sh`.
+
+1. **`avahi-daemon` not started → Printer Application aborts.**
+   PAPPL registers with mDNS/DNS-SD at startup and exits 1 with
+   `Unable to register system, is the Avahi daemon running?`. On a minimal
+   install Avahi is present but not enabled, so the failure looks unrelated.
+   The installer now enables/starts `avahi-daemon.service` and the systemd
+   drop-in gained `After=`/`Wants=avahi-daemon.service`.
+
+2. **`wait_for_app()` deadlocked on a fresh machine.** It waited for the
+   *queue* to exist, but the queue is created later by `create_queues()` — so
+   on a machine with no pre-existing `konica206uri` queue it always timed out
+   and silently skipped queue creation. It now waits for the *server*
+   (`legacy-printer-app status` reporting `Running`).
+
+3. **Hardcoded driver name was wrong.** The old default
+   `konica-minolta--206--full-bleed-retrofit-en` no longer matches what the
+   build advertises. Worse, `legacy-printer-app drivers` **lists** user-added
+   PPDs with an extra `-user-added` token (`...-retrofit-user-added-en`) while
+   `legacy-printer-app add -m` only **accepts** the plain name
+   (`...-retrofit-en`) and rejects the suffixed one with
+   `Driver '...' cannot be used with this printer.` The installer now resolves
+   the name at runtime from `legacy-printer-app drivers` (matching on
+   `DRIVER_MATCH`, default `real-margin-retrofit`) and strips only the
+   `-user-added` token, keeping the `-en` language suffix.
+
+4. **`konica206uri-ppd` aborted every job.** It was pointed at
+   `KonicaMinolta-206-real-margins.ppd`, which is the PAPPL *driver* PPD; its
+   `*cupsFilter: ... 245igdirf` made CUPS run the vendor GDI filter locally, so
+   PAPPL received `application/vnd.printer-specific` instead of raster and the
+   job aborted (`[Job N] Aborted, job-impressions-completed=0`). Both CUPS
+   queues now use the generated driverless shim PPD, whose `*cupsFilter2`
+   lines pass documents straight through to PAPPL.
+
+### 7.2 Verified working on this machine (2026-10-03)
+
+| Check | Result |
+|---|---|
+| Simplex, A4 | `@PJL SET DUPLEX=OFF`, `PAPER=A4`, 1 page, 1 `EOJ`, filter status 0 |
+| Duplex long-edge, A4 | `@PJL SET DUPLEX=ON`, `BINDING=SHORTEDGE`, 4 pages, 1 `EOJ` |
+| Duplex short-edge, A4 | `@PJL SET DUPLEX=ON`, `BINDING=LONGEDGE`, 4 pages, 1 `EOJ` |
+| Print with **no** `-o` options | Completes — proves A4 + one-sided defaults |
+| `konica206uri-ppd` queue | Duplex job completes (`245igdirf` → USB backend, status 0) |
+| Shim PPD | 24 sizes, `*DefaultPageSize: A4`, `*DefaultDuplex: None`, 0 borderless refs |
+| Non-default size | e.g. `-o PageSize=A5` / `-o media=iso_a5_148x210mm` available |
+| `systemctl restart cups legacy-printer-app` | All queues, PPDs and defaults survive |
 
 ---
 

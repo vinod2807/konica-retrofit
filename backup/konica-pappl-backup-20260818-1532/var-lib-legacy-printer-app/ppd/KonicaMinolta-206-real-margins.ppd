@@ -133,7 +133,7 @@
 *OpenGroup: DuplexOption/Duplex
 
 *OpenUI *Duplexer/Duplex Unit: PickOne
-*DefaultDuplexer: false
+*DefaultDuplexer: true
 *Duplexer true/Installed: ""
 *Duplexer false/Not Installed: ""
 *CloseUI: *Duplexer

@@ -23,14 +23,35 @@ DO_SOURCE_BUILD=1
 SERVER_PORT="${SERVER_PORT:-8000}"
 
 PRINTER_NAME="konica206uri"
-DRIVER_NAME="${DRIVER_NAME:-konica-minolta--206--full-bleed-retrofit-en}"
+
+# Paper handling. Real-margin (NOT full-bleed/borderless) rendering, and
+# A4 + one-sided (simplex) as the queue defaults. Duplex stays fully
+# available via -o sides=two-sided-long-edge / two-sided-short-edge.
+DRIVER_MATCH="${DRIVER_MATCH:-real-margin-retrofit}"
+# NB: non-suffixed form on purpose -- `add` rejects the "-user-added-en" name.
+DRIVER_NAME="${DRIVER_NAME:-konica-minolta--206--${DRIVER_MATCH}-en}"
 PAPPL_PPD_DIR="/var/lib/legacy-printer-app/ppd"
 BACKEND_DIR="/usr/local/libexec/konica-backend"
 DRIVER_HOME="/usr/local/lib/konica/KonicaMinolta/245igdi"
 ENSURE_BIN="/usr/local/bin/ensure-konica206uri.sh"
 MEDIA_TEST_DIR="/usr/local/share/konica206uri"
-PPD_QUEUE_FILE="${PPD_QUEUE_FILE:-konica206-pdf-fullbleed.ppd}"
+# The CUPS-facing PPD. Left empty on purpose: create_queues() fills it with
+# the driverless shim PPD it generates, which already carries every paper
+# size, real (non-borderless) ImageableArea entries and correct
+# *cupsFilter2 pass-through lines. Do NOT point this at
+# KonicaMinolta-206-real-margins.ppd -- that is the PAPPL *driver* PPD and
+# its "*cupsFilter: ... 245igdirf" makes CUPS run the GDI filter locally,
+# so PAPPL receives application/vnd.printer-specific instead of raster and
+# the job aborts.
+PPD_QUEUE_FILE="${PPD_QUEUE_FILE:-}"
+DEFAULT_MEDIA="${DEFAULT_MEDIA:-iso_a4_210x297mm}"
+DEFAULT_SIDES="${DEFAULT_SIDES:-one-sided}"
 IPP_ENDPOINT="http://localhost:${SERVER_PORT}/ipp/print/${PRINTER_NAME}"
+
+# Borderless / full-bleed words that must never appear in the generated shim
+# PPD. The retrofit tree also ships a full-bleed PPD; the default selection
+# above keeps us on real margins.
+BORDERLESS_RE='fullbleed|full-bleed|borderless|Borderless'
 
 log()  { echo "==> $*"; }
 warn() { echo "WARN: $*" >&2; }
@@ -320,6 +341,22 @@ install_ppds() {
     cp "$BK/var/lib/legacy-printer-app/ppd/KonicaMinolta-206-fullbleed.ppd" "$PAPPL_PPD_DIR/"
     cp "$BK/var/lib/legacy-printer-app/ppd/KonicaMinolta-206-real-margins.ppd" "$PAPPL_PPD_DIR/"
     cp "$BK/var/lib/legacy-printer-app/ppd/konica206-pdf-fullbleed.ppd" "$PAPPL_PPD_DIR/"
+
+    # The 206 has a working duplexer, but the vendor PPD ships
+    # "*DefaultDuplexer: false" (i.e. "not installed"). Combined with the
+    # PPD's own "*UIConstraints: *Duplexer false <-> *Duplex DuplexNoTumble"
+    # rules that makes GUI apps hide/drop the Duplex choice even though the
+    # hardware does duplex. Advertise the unit as installed while keeping
+    # "*DefaultDuplex: None" so the queue still DEFAULTS to simplex.
+    local p
+    for p in "$PAPPL_PPD_DIR/KonicaMinolta-206-real-margins.ppd" \
+             "$PAPPL_PPD_DIR/KonicaMinolta-206-fullbleed.ppd"; do
+        [ -f "$p" ] || continue
+        sed -i -E 's/^\*DefaultDuplexer:[[:space:]]*false/*DefaultDuplexer: true/;
+                   s/^\*DefaultDuplex:[[:space:]]*.*/*DefaultDuplex: None/' "$p"
+    done
+    log "PPDs: $(ls "$PAPPL_PPD_DIR" | tr '\n' ' ')"
+    log "PAPPL driver PPD: DefaultDuplexer=$(sed -n 's/^\*DefaultDuplexer:[[:space:]]*//p' "$PAPPL_PPD_DIR/KonicaMinolta-206-real-margins.ppd") DefaultDuplex=$(sed -n 's/^\*DefaultDuplex:[[:space:]]*//p' "$PAPPL_PPD_DIR/KonicaMinolta-206-real-margins.ppd") DefaultPageSize=$(sed -n 's/^\*DefaultPageSize:[[:space:]]*//p' "$PAPPL_PPD_DIR/KonicaMinolta-206-real-margins.ppd") ImageableAreaA4=$(sed -n 's/^\*ImageableArea A4\/A4:[[:space:]]*//p' "$PAPPL_PPD_DIR/KonicaMinolta-206-real-margins.ppd")"
 }
 
 install_ensure_script() {
@@ -331,7 +368,7 @@ install_ensure_script() {
 URI='cups:usb://KONICA%20MINOLTA/206?serial=${SERIAL}&interface=1'
 DRIVER='${DRIVER_NAME}'
 IPP='ipp://localhost:${SERVER_PORT}/ipp/print/${PRINTER_NAME}'
-PPD='${PAPPL_PPD_DIR}/${PPD_QUEUE_FILE}'
+# (legacy; the shim PPD below is what the CUPS queues use)
 # ensure 245igdirf.ocm config is resolvable alongside the filter (runs every invocation)
 # The PPD's *OCM_resourceDir points at the legacy /usr/lib/cups/filter/KonicaMinolta
 # tree, so point the whole tree at the relocated driver (keeps Colorworlds, Halftones,
@@ -343,18 +380,29 @@ if [ -d ${DRIVER_HOME} ]; then
   ln -sf ${DRIVER_HOME} "\$OCM_DST"
 fi
 # ensure CUPS queues exist (guarded; lpadmin -P is unsupported on CUPS 3.0)
+SHIM_PPD='${MEDIA_TEST_DIR}/${PRINTER_NAME}-driverless.ppd'
 if command -v lpadmin >/dev/null 2>&1 && command -v lpstat >/dev/null 2>&1; then
-  # primary: PPD-less IPP queue (CUPS 3.0-ready default)
-  if ! lpstat -p ${PRINTER_NAME} >/dev/null 2>&1; then
+  # primary: shim-PPD IPP queue so GUI apps see every paper size.
+  # Re-attach the shim PPD when we have it; fall back to PPD-less.
+  if [ -f "\$SHIM_PPD" ]; then
+    lpadmin -p ${PRINTER_NAME} -v "\$IPP" -P "\$SHIM_PPD" -E 2>/dev/null || \\
+      lpadmin -p ${PRINTER_NAME} -v "\$IPP" -E 2>/dev/null || true
+  else
     lpadmin -p ${PRINTER_NAME} -v "\$IPP" -E 2>/dev/null || true
-    lpadmin -d ${PRINTER_NAME} 2>/dev/null || true
   fi
-  # optional: classic PPD queue so GTK/Atril offers Duplex on CUPS 2.x
-  # (silently skipped on CUPS 3.0 where -P is unsupported)
-  if ! lpstat -p ${PRINTER_NAME}-ppd >/dev/null 2>&1; then
-    lpadmin -p ${PRINTER_NAME}-ppd -v "\$IPP" -P "\$PPD" -E 2>/dev/null || true
-    lpadmin -p ${PRINTER_NAME}-ppd -o sides-default=one-sided 2>/dev/null || true
+  # secondary/compat queue: same shim PPD (it already carries all media
+  # sizes, real margins and Duplex). Re-point it if the PPD changed.
+  if [ -f "\$SHIM_PPD" ]; then
+    lpadmin -p ${PRINTER_NAME}-ppd -v "\$IPP" -P "\$SHIM_PPD" -E 2>/dev/null || true
+    lpadmin -p ${PRINTER_NAME}-ppd -o sides-default=${DEFAULT_SIDES} 2>/dev/null || true
+    lpadmin -p ${PRINTER_NAME}-ppd -o media-default=${DEFAULT_MEDIA} 2>/dev/null || true
+    lpadmin -p ${PRINTER_NAME}-ppd -o PageSize-default=A4 2>/dev/null || true
   fi
+  # restore A4 + simplex defaults on the primary queue
+  lpadmin -p ${PRINTER_NAME} -o sides-default=${DEFAULT_SIDES} 2>/dev/null || true
+  lpadmin -p ${PRINTER_NAME} -o media-default=${DEFAULT_MEDIA} 2>/dev/null || true
+  lpadmin -p ${PRINTER_NAME} -o PageSize-default=A4 2>/dev/null || true
+  lpadmin -d ${PRINTER_NAME} 2>/dev/null || true
 fi
 for i in \$(seq 1 30); do
   if legacy-printer-app printers 2>/dev/null | awk '{print \$1}' | grep -qx '${PRINTER_NAME}'; then
@@ -517,23 +565,45 @@ install_systemd() {
     log "Installing systemd drop-in..."
     install -d "$(dirname "$unit")"
     cat > "$unit" <<EOF
+[Unit]
+After=avahi-daemon.service
+Wants=avahi-daemon.service
+
 [Service]
 Environment=PPD_PATHS=${PAPPL_PPD_DIR}:/usr/share/cups/model:/usr/lib/cups/driver
 ExecStart=
 ExecStart=legacy-printer-app server -o log-level=debug -o backend-directory=${BACKEND_DIR} -o server-port=${SERVER_PORT}
 ExecStartPost=${ENSURE_BIN}
 EOF
+    # PAPPL registers itself with Avahi (mDNS/DNS-SD) at startup and ABORTS if
+    # Avahi is not running ("Unable to register system, is the Avahi daemon
+    # running?" -> exit 1). On a fresh/minimal install avahi-daemon is often
+    # installed but not enabled, which makes the Printer Application fail to
+    # start with no hint about the real cause.
+    if command -v systemctl >/dev/null 2>&1 && \
+       systemctl list-unit-files avahi-daemon.service >/dev/null 2>&1; then
+        log "Enabling avahi-daemon.service (required by the Printer Application)..."
+        systemctl enable --now avahi-daemon.service || \
+            warn "could not start avahi-daemon; the Printer Application will not start"
+    fi
     systemctl daemon-reload
     systemctl enable --now legacy-printer-app.service
 }
 
 wait_for_app() {
     log "Waiting for the Printer Application..."
+    # Wait for the SERVER to be ready, not for the queue: the queue is created
+    # by create_queues() below, so requiring it here deadlocks on a fresh
+    # machine (wait always times out and queue creation is skipped).
     local i
     for i in $(seq 1 30); do
-        printer_exists "$PRINTER_NAME" && return 0
+        if legacy-printer-app status 2>/dev/null | grep -q '^Running'; then
+            log "Printer Application is up."
+            return 0
+        fi
         sleep 1
     done
+    warn "Printer Application did not report 'Running' within 30s."
     return 1
 }
 
@@ -562,13 +632,34 @@ fix_contexts() {
 # ---------------------------------------------------------------------------
 create_queues() {
     log "Creating the PAPPL queue ($PRINTER_NAME)..."
+
+    # Resolve the driver name against what this PAPPL build actually
+    # advertises. The generated name carries build-dependent affixes (e.g.
+    # "-user-added", "-en"), so match on the stable middle token instead of
+    # hardcoding a name that silently rots across pappl-retrofit versions.
+    #
+    # NOTE: `legacy-printer-app drivers` LISTS user-added PPDs with an extra
+    # "-user-added" token inserted before the "-en" language suffix
+    # (e.g. "...--real-margin-retrofit-user-added-en"), but
+    # `legacy-printer-app add -m` only ACCEPTS the plain name
+    # ("...--real-margin-retrofit-en") and rejects the suffixed one with
+    # "Driver '...' cannot be used with this printer." Strip just the
+    # "-user-added" token and keep the language suffix.
+    local resolved
+    resolved="$(legacy-printer-app drivers 2>/dev/null \
+        | awk -v m="$DRIVER_MATCH" '$1 ~ m {print $1}' | head -1)"
+    if [ -n "$resolved" ]; then
+        DRIVER_NAME="${resolved/-user-added/}"
+        log "Resolved driver: '${resolved}' -> add with '${DRIVER_NAME}'"
+    fi
+
     legacy-printer-app delete -d "$PRINTER_NAME" 2>/dev/null || true
     legacy-printer-app add -d "$PRINTER_NAME" \
         -v "cups:usb://KONICA%20MINOLTA/206?serial=${SERIAL}&interface=1" \
         -m "$DRIVER_NAME" || {
-        warn "driver '$DRIVER_NAME' unknown to this build; listing available PPDs:"
-        ls "$PAPPL_PPD_DIR"
-        warn "edit DRIVER_NAME in this script to the matching driver and re-run."
+        warn "driver '$DRIVER_NAME' unknown to this build; available drivers:"
+        legacy-printer-app drivers 2>/dev/null | grep -i konica
+        warn "set DRIVER_MATCH (currently '$DRIVER_MATCH') to the token you want."
         return 1
     }
 
@@ -579,11 +670,11 @@ create_queues() {
 
     if command -v lpadmin >/dev/null 2>&1; then
         log "Creating the CUPS passthrough queue for GUI apps..."
-        # Preferred: generate a driverless PPD from the Printer Application so
-        # the queue advertises ALL media sizes to GUI apps (LibreOffice/WPS
-        # read the queue's PPD; a PPD-less queue shows no sizes at all).
-        # Fall back to a PPD-less IPP queue when the driverless tool is
-        # unavailable -- that is exactly the model CUPS 3.0 uses.
+        # Preferred: generate a driverless shim PPD from the Printer
+        # Application so the queue advertises ALL media sizes to GUI apps
+        # (LibreOffice/WPS read the queue's PPD; a PPD-less queue shows no
+        # sizes at all). Fall back to a PPD-less IPP queue when the driverless
+        # tool is unavailable -- that is exactly the model CUPS 3.0 uses.
         DRIVERLESS_PPD="$MEDIA_TEST_DIR/${PRINTER_NAME}-driverless.ppd"
         DRIVERLESS_TOOL=""
         for t in driverless /usr/lib/cups/driver/driverless \
@@ -595,11 +686,13 @@ create_queues() {
         done
 
         if [ -n "$DRIVERLESS_TOOL" ]; then
-            log "Generating driverless PPD from the Printer Application..."
+            log "Generating driverless shim PPD from the Printer Application..."
             if "$DRIVERLESS_TOOL" "ipp://localhost:${SERVER_PORT}/ipp/print/$PRINTER_NAME" \
-                    > "$DRIVERLESS_PPD" 2>/dev/null && \
-               grep -q '^\*PageSize' "$DRIVERLESS_PPD" 2>/dev/null; then
-                log "Attaching driverless PPD (all media sizes) to $PRINTER_NAME"
+                    > "$DRIVERLESS_PPD.raw" 2>/dev/null && \
+               grep -q '^\*PageSize' "$DRIVERLESS_PPD.raw" 2>/dev/null; then
+                sanitize_shim_ppd "$DRIVERLESS_PPD.raw" "$DRIVERLESS_PPD"
+                log "Shim PPD: $(grep -c '^\*PageSize ' "$DRIVERLESS_PPD") paper sizes, default $(sed -n 's/^\*DefaultPageSize:[[:space:]]*//p' "$DRIVERLESS_PPD")"
+                log "Attaching driverless shim PPD (all media sizes) to $PRINTER_NAME"
                 lpadmin -p "$PRINTER_NAME" \
                     -v "ipp://localhost:${SERVER_PORT}/ipp/print/$PRINTER_NAME" \
                     -P "$DRIVERLESS_PPD" -E || {
@@ -617,23 +710,72 @@ create_queues() {
             lpadmin -p "$PRINTER_NAME" \
                 -v "ipp://localhost:${SERVER_PORT}/ipp/print/$PRINTER_NAME" -E
         fi
+
+        # Defaults: A4 + one-sided (simplex). Duplex remains selectable via
+        # -o sides=two-sided-long-edge / two-sided-short-edge.
+        set_queue_defaults "$PRINTER_NAME"
+
         lpadmin -d "$PRINTER_NAME"
         lpoptions -d "$PRINTER_NAME" 2>/dev/null || true
 
-        # Optional classic PPD queue so GTK/Atril offers Duplex on CUPS 2.x
-        # (skipped silently on CUPS 3.0 where -P is unsupported).
-        if ! lpstat -p "${PRINTER_NAME}-ppd" >/dev/null 2>&1; then
-            lpadmin -p "${PRINTER_NAME}-ppd" \
-                -v "ipp://localhost:${SERVER_PORT}/ipp/print/$PRINTER_NAME" \
-                -P "$PAPPL_PPD_DIR/$PPD_QUEUE_FILE" -E 2>/dev/null || \
-                warn "could not create ${PRINTER_NAME}-ppd queue (CUPS 3.0?)"
-            lpadmin -p "${PRINTER_NAME}-ppd" -o sides-default=one-sided 2>/dev/null || true
+        # Optional classic-PPD queue kept under the historical name for
+        # compatibility (skipped silently on CUPS 3.0 where -P is
+        # unsupported). It uses the SAME driverless shim PPD: that already
+        # exposes all media sizes plus Duplex, so this queue is only a
+        # second name for GUI apps that insist on their own PPD.
+        if [ -f "$DRIVERLESS_PPD" ]; then
+            PPD_QUEUE_FILE="$DRIVERLESS_PPD"
+            if ! lpstat -p "${PRINTER_NAME}-ppd" >/dev/null 2>&1; then
+                lpadmin -p "${PRINTER_NAME}-ppd" \
+                    -v "ipp://localhost:${SERVER_PORT}/ipp/print/$PRINTER_NAME" \
+                    -P "$PPD_QUEUE_FILE" -E 2>/dev/null || \
+                    warn "could not create ${PRINTER_NAME}-ppd queue (CUPS 3.0?)"
+            else
+                # keep the existing queue pointed at the current shim PPD
+                lpadmin -p "${PRINTER_NAME}-ppd" -P "$PPD_QUEUE_FILE" -E 2>/dev/null || true
+            fi
+            set_queue_defaults "${PRINTER_NAME}-ppd"
         fi
         systemctl restart cups 2>/dev/null || true
     else
         warn "lpadmin not found (CUPS 3.0?). Skipping CUPS queue."
         warn "Point GUI apps directly at: $IPP_ENDPOINT"
     fi
+}
+
+# ---------------------------------------------------------------------------
+# 9b. Shim PPD post-processing
+#
+# `driverless` mirrors whatever the Printer Application advertises. This
+# retrofit tree also ships a full-bleed (borderless) PPD, so drop any
+# borderless entries the shim may have picked up, and pin the defaults to
+# A4 / one-sided. Also relaxes the duplex UIConstraints so a driverless
+# shim (which advertises every size, including envelopes) doesn't get its
+# duplex choices silently stripped by CUPS' constraint engine.
+# ---------------------------------------------------------------------------
+sanitize_shim_ppd() {  # sanitize_shim_ppd <in> <out>
+    local in="$1" out="$2"
+    # Keep every keyword line except ones naming a borderless size, and drop
+    # UIConstraints that reference those sizes (they would dangle otherwise).
+    sed -E "/$BORDERLESS_RE/d" "$in" > "$out"
+    # Pin defaults: first PageSize keyword after DefaultPageSize is the default.
+    local def
+    def="$(sed -n 's/^\*DefaultPageSize:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$out" | head -1)"
+    [ -n "$def" ] || def="A4"
+    if ! grep -q "^\*PageSize ${def}/" "$out"; then def="A4"; fi
+    sed -i -E "s/^\\*DefaultPageSize:.*/*DefaultPageSize: ${def}/" "$out"
+    # Advertise the duplexer as installed and default to one-sided.
+    sed -i -E 's/^\*DefaultDuplexer:.*/*DefaultDuplexer: true/' "$out"
+    sed -i -E 's/^\*DefaultDuplex:.*/*DefaultDuplex: None/' "$out"
+    rm -f "$in"
+}
+
+set_queue_defaults() {  # set_queue_defaults <queue>
+    local q="$1"
+    lpadmin -p "$q" -o sides-default=one-sided 2>/dev/null || true
+    lpadmin -p "$q" -o media-default="$DEFAULT_MEDIA" 2>/dev/null || true
+    lpadmin -p "$q" -o PageSize-default=A4 2>/dev/null || true
+    lpadmin -p "$q" -o print-color-mode=monochrome 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
