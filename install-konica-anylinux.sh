@@ -737,6 +737,42 @@ fix_contexts() {
 }
 
 # ---------------------------------------------------------------------------
+# 9a. Wine-Adobe PostScript MIME fix
+#
+# Wine/Acrobat output containing an embedded Adobe block is classified by
+# CUPS as application/vnd.adobe-reader-postscript, which has no direct
+# to-PDF rule, so CUPS forces it through
+# pstops -> gstoraster -> rastertopwg -> pwgtopdf and the job dies with
+# "Ghostscript stopped status 255 / ioerror (-12) on closing pdfwrite".
+# Retyping it to plain application/postscript restores the working gstopdf
+# path (same chain plain-PS Job 22 and native-PDF jobs use). Verified on
+# paper (Jobs 23/24); native-PDF jobs are unaffected. Classic-queue Wine jobs
+# take one extra PDF roundtrip (dry-run only, not yet paper-confirmed).
+# ---------------------------------------------------------------------------
+install_wineps_convs() {
+    local convs=/etc/cups/wineps.convs
+    log "Installing Wine-Adobe PS MIME rule ($convs)..."
+    printf '%s\n' 'application/vnd.adobe-reader-postscript application/postscript 0 -' > "$convs"
+    chmod 0644 "$convs"
+    cupsd -t || warn "cupsd -t reported problems; continuing"
+    restart_cups || true
+}
+
+restart_cups() {  # robust across systemd and sysvinit (e.g. Puppy)
+    if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+        systemctl restart cups 2>/dev/null && return 0
+    fi
+    if command -v service >/dev/null 2>&1; then
+        service cups restart 2>/dev/null && return 0
+    fi
+    if [ -x /etc/init.d/cups ]; then
+        /etc/init.d/cups restart 2>/dev/null && return 0
+    fi
+    warn "could not restart CUPS; restart it manually"
+    return 1
+}
+
+# ---------------------------------------------------------------------------
 # 9. Create the PAPPL queue + CUPS passthrough queue
 # ---------------------------------------------------------------------------
 create_queues() {
@@ -880,7 +916,7 @@ create_queues() {
             fi
             set_queue_defaults "${PRINTER_NAME}-ppd"
         fi
-        systemctl restart cups 2>/dev/null || true
+        restart_cups || true
     else
         warn "lpadmin not found (CUPS 3.0?). Skipping CUPS queue."
         warn "Point GUI apps directly at: $IPP_ENDPOINT"
@@ -975,6 +1011,7 @@ main() {
     else
         warn "Printer Application did not come up; check journalctl -u legacy-printer-app"
     fi
+    install_wineps_convs
     install_usb_queue_watch
     fix_contexts
     verify

@@ -529,6 +529,19 @@ page count, filter exit 0 all looked perfect while the paper was wrong).
 Not verified on paper: non-A4 sizes — only A4 is loaded in the machine and the
 printer reports a page-size error otherwise.
 
+### 7.3 Wine-Adobe PostScript fix (2026-10-04)
+
+Wine/Acrobat output embedding an Adobe block is detected as
+`application/vnd.adobe-reader-postscript`, which has no direct-to-PDF rule,
+so CUPS routes it through `pstops -> gstoraster -> rastertopwg -> pwgtopdf`
+and the job dies (`Ghostscript status 255 / ioerror (-12)`). Plain PS
+(`gstopdf`) and native PDF (`pdftopdf` passthrough) always printed. The
+installer now writes a one-line no-op retype rule to
+`/etc/cups/wineps.convs` (`adobe-reader-postscript -> postscript 0 -`) and
+restarts CUPS (systemd with sysvinit fallback for Puppy), restoring the
+working `gstopdf` path. Verified on paper (Jobs 23/24). Revert: delete that
+file and restart CUPS. Full write-up: `docs-Wine-Adobe-PS-Fix.md`.
+
 ## 8. Related local files (this machine)
 
 - Current Option A backup: `/home/vinod/konica-pappl-backup-20260818-1532/` and
