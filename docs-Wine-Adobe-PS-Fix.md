@@ -55,3 +55,25 @@ from systemd to `service`/`/etc/init.d/cups` for non-systemd hosts (Puppy).
   `pstops->gstoraster->245igdirf` to `gstopdf->pdftopdf->gstoraster->245igdirf`
   (dry-run resolves; not yet confirmed on paper).
 - Revert: delete `/etc/cups/wineps.convs` and restart CUPS.
+
+## Regression guard
+
+`check-wineps-route.sh` (repo root, installed to `/usr/local/sbin`,
+fixture `/usr/local/share/konica-retrofit/min-ar.ps`, committed as
+`tests/min-ar.ps`) verifies read-only that the rule file exists and
+`cupsfilter --list-filters` resolves the fixture to `gstopdf` with no
+`gstoraster`/`rastertopwg`/`pwgtopdf`. First output word is `OK`, `SKIP`,
+or `FAIL`; exits 0/0/1, or 2 when the check itself cannot run. Manual run:
+
+```
+check-wineps-route.sh; echo "exit: $?"
+```
+
+A `FAIL` with the rule present means upstream MIME/`.convs` behavior
+changed and the routing needs a rethink (e.g. a different retype target
+or the earlier `wineps2pdf` filter approach). Triggers: apt
+`DPkg::Post-Invoke` hook (`/etc/apt/apt.conf.d/99konica-wineps-guard`),
+pacman hook on cups/cups-filters/ghostscript, and the generated
+`/usr/local/bin/ensure-konica206uri.sh` self-heal, which recreates a
+missing rule file and otherwise only warns. Fedora/openSUSE have no
+package-manager hook; Puppy relies on the self-heal script.

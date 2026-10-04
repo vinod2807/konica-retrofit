@@ -513,6 +513,16 @@ if command -v lpadmin >/dev/null 2>&1 && command -v lpstat >/dev/null 2>&1; then
     lpadmin -d ${PRINTER_NAME} 2>/dev/null || true
   fi
 fi
+# Wine-Adobe PS routing guard: self-heal a missing rule file only.
+# (File present but chain still wrong means upstream MIME behavior changed;
+# leave that for a human.)
+if command -v check-wineps-route.sh >/dev/null 2>&1; then
+  if [ ! -f /etc/cups/wineps.convs ]; then
+    printf '%s\n' 'application/vnd.adobe-reader-postscript application/postscript 0 -' > /etc/cups/wineps.convs 2>/dev/null || true
+    chmod 0644 /etc/cups/wineps.convs 2>/dev/null || true
+  fi
+  check-wineps-route.sh >/dev/null 2>&1 || echo "WARN: Wine-Adobe PS routing check failed; run check-wineps-route.sh" >&2 || true
+fi
 for i in \$(seq 1 30); do
   if legacy-printer-app printers 2>/dev/null | awk '{print \$1}' | grep -qx '${PRINTER_NAME}'; then
     exit 0
@@ -773,6 +783,54 @@ restart_cups() {  # robust across systemd and sysvinit (e.g. Puppy)
 }
 
 # ---------------------------------------------------------------------------
+# 9b. Wine-Adobe PS routing guard + upgrade hooks
+#
+# The /etc/cups/wineps.convs retype rule (see install_wineps_convs) is
+# load-bearing: a cups-filters update could rename the MIME type, change
+# detection in cupsfilters.types, or change how /etc/cups/*.convs loads,
+# and the old gstoraster failure would return silently. The guard verifies
+# the resolved chain read-only; the hooks below and the ensure script run
+# it automatically after relevant changes.
+# ---------------------------------------------------------------------------
+install_wineps_guard() {
+    log "Installing Wine-Adobe PS routing guard..."
+    install -d /usr/local/share/konica-retrofit /usr/local/sbin
+    install -m 644 "$REPO_DIR/tests/min-ar.ps" /usr/local/share/konica-retrofit/min-ar.ps
+    install -m 755 "$REPO_DIR/check-wineps-route.sh" /usr/local/sbin/check-wineps-route.sh
+    # Debian/Ubuntu: run the (fast, read-only) guard after dpkg operations.
+    # Capability-gated on the apt config dir so non-apt hosts skip it.
+    if [ -d /etc/apt/apt.conf.d ]; then
+        cat > /etc/apt/apt.conf.d/99konica-wineps-guard <<'EOF'
+# Konica retrofit: verify the Wine-Adobe PS routing after package changes.
+# Read-only check; always exits 0 so it never blocks apt.
+DPkg::Post-Invoke { "[ -x /usr/local/sbin/check-wineps-route.sh ] && /usr/local/sbin/check-wineps-route.sh >/dev/null 2>&1 || true"; };
+EOF
+        chmod 644 /etc/apt/apt.conf.d/99konica-wineps-guard
+    fi
+    # Arch: pacman hook on the printing stack. Written only where pacman
+    # hooks are supported.
+    if [ -d /etc/pacman.d/hooks ]; then
+        cat > /etc/pacman.d/hooks/99-konica-wineps-guard.hook <<'EOF'
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = cups
+Target = cups-filters
+Target = ghostscript
+
+[Action]
+Description = Verify Konica Wine-Adobe PS routing
+When = PostTransaction
+Exec = /bin/sh -c '/usr/local/sbin/check-wineps-route.sh >/dev/null 2>&1 || true'
+EOF
+        chmod 644 /etc/pacman.d/hooks/99-konica-wineps-guard.hook
+    fi
+    # Fedora/openSUSE: no clean per-package hook available; the ensure-script
+    # self-heal below plus manual runs cover those hosts.
+}
+
+# ---------------------------------------------------------------------------
 # 9. Create the PAPPL queue + CUPS passthrough queue
 # ---------------------------------------------------------------------------
 create_queues() {
@@ -1012,6 +1070,7 @@ main() {
         warn "Printer Application did not come up; check journalctl -u legacy-printer-app"
     fi
     install_wineps_convs
+    install_wineps_guard
     install_usb_queue_watch
     fix_contexts
     verify

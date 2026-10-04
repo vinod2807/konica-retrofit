@@ -539,7 +539,9 @@ and the job dies (`Ghostscript status 255 / ioerror (-12)`). Plain PS
 installer now writes a one-line no-op retype rule to
 `/etc/cups/wineps.convs` (`adobe-reader-postscript -> postscript 0 -`) and
 restarts CUPS (systemd with sysvinit fallback for Puppy), restoring the
-working `gstopdf` path. Verified on paper (Jobs 23/24). Revert: delete that
+working `gstopdf` path. Verified on paper (Jobs 23/24). A read-only guard
+(`check-wineps-route.sh`, run manually or via apt/pacman hooks and the
+ensure-script self-heal) watches the routing. Revert: delete that
 file and restart CUPS. Full write-up: `docs-Wine-Adobe-PS-Fix.md`.
 
 ## 8. Related local files (this machine)
