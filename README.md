@@ -553,8 +553,9 @@ log excerpts, and rejected hypotheses: `INVESTIGATION-2026-10-08-konica206uri-di
 Fix live in `konica-cups-watch.sh` + `konica-cups-watch-boot.sh`, installed
 by `install_usb_queue_watch()`: `cupsdisable -r konica-usb-absent` MARKER so
 manual pauses stay distinct, 2s settle + USB-reality reconcile, boot
-wait-for-cupsd (`/root/Startup` on Puppy, systemd unit where present), cron
-`*/5 check` self-heal, bounded log `/var/log/konica-cups-watch.log`.
+wait-for-cupsd (`/root/Startup` on Puppy, systemd unit where present),
+periodic `check` self-heal via systemd timer (`konica-cups-watch.timer`,
+cron `*/5` fallback on non-systemd hosts), bounded log `/var/log/konica-cups-watch.log`.
 
 ## 8. Related local files (this machine)
 

@@ -1,0 +1,13 @@
+[Unit]
+Description=Reconcile Konica 206 USB queues every 5 minutes
+After=cups.service
+Wants=cups.service
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

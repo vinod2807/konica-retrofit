@@ -549,8 +549,11 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# 8. Konica USB presence watcher (udev + boot check + cron guard)
+# 8. Konica USB presence watcher (udev + boot check + periodic self-heal)
 # Hardened 2026-10-08: MARKER reason, settle, foreign-pause guard, logging.
+# Periodic self-heal branches on init system, like the stuck-watch below:
+#   systemd hosts: konica-cups-watch.timer every 5 min (cron guard removed).
+#   non-systemd hosts (Puppy/sysvinit): cron every 5 min + /root/Startup.
 # See INVESTIGATION-2026-10-08-konica206uri-disable.md.
 # Works on systemd AND non-systemd (Puppy) hosts.
 # ---------------------------------------------------------------------------
@@ -569,28 +572,46 @@ install_usb_queue_watch() {
     if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
         install -d /etc/systemd/system
         install -m 644 "$REPO_DIR/konica-cups-watch.service" /etc/systemd/system/konica-cups-watch.service
+        install -m 644 "$REPO_DIR/konica-cups-watch.timer" /etc/systemd/system/konica-cups-watch.timer
         systemctl daemon-reload || warn "could not reload systemd manager"
         # The queues are created before this function is called. The boot check
         # therefore reconciles the actual queue state with USB presence.
         systemctl enable --now konica-cups-watch.service \
             || warn "could not enable/start konica-cups-watch.service"
+        # Periodic self-heal every 5 min via systemd timer (not cron) on
+        # systemd hosts; drop any cron guard left by an earlier install so
+        # the two never double-run.
+        systemctl enable --now konica-cups-watch.timer \
+            || warn "could not enable/start konica-cups-watch.timer"
+        if command -v crontab >/dev/null 2>&1; then
+            tmpcron="$(mktemp)"
+            crontab -l 2>/dev/null > "$tmpcron" || true
+            if grep -q "konica-cups-watch.sh check" "$tmpcron"; then
+                grep -v "konica-cups-watch.sh check" "$tmpcron" > "$tmpcron.new" || true
+                if [ -s "$tmpcron.new" ]; then
+                    crontab "$tmpcron.new" || warn "could not remove cron guard"
+                else
+                    crontab -r || warn "could not remove cron guard"
+                fi
+            fi
+            rm -f "$tmpcron" "$tmpcron.new"
+        fi
     else
         # Puppy / sysvinit: boot-time reconcile via /root/Startup + cron guard.
         if [ -d /root/Startup ]; then
             install -m 755 "$REPO_DIR/konica-cups-watch-boot.sh" /root/Startup/konica-cups-watch-boot.sh
         fi
-    fi
-
-    # Cron self-heal every 5 min (reconciles against real USB state; lost or
-    # reordered udev events recover automatically). Idempotent.
-    if command -v crontab >/dev/null 2>&1; then
-        tmpcron="$(mktemp)"
-        crontab -l 2>/dev/null > "$tmpcron" || true
-        if ! grep -q "konica-cups-watch.sh check" "$tmpcron"; then
-            echo "*/5 * * * * /usr/local/bin/konica-cups-watch.sh check" >> "$tmpcron"
-            crontab "$tmpcron" || warn "could not install cron guard"
+        # Cron self-heal every 5 min (reconciles against real USB state; lost or
+        # reordered udev events recover automatically). Idempotent.
+        if command -v crontab >/dev/null 2>&1; then
+            tmpcron="$(mktemp)"
+            crontab -l 2>/dev/null > "$tmpcron" || true
+            if ! grep -q "konica-cups-watch.sh check" "$tmpcron"; then
+                echo "*/5 * * * * /usr/local/bin/konica-cups-watch.sh check" >> "$tmpcron"
+                crontab "$tmpcron" || warn "could not install cron guard"
+            fi
+            rm -f "$tmpcron"
         fi
-        rm -f "$tmpcron"
     fi
 
     /usr/local/bin/konica-cups-watch.sh check >/dev/null 2>&1 || true
