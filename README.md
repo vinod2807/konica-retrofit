@@ -544,6 +544,18 @@ working `gstopdf` path. Verified on paper (Jobs 23/24). A read-only guard
 ensure-script self-heal) watches the routing. Revert: delete that
 file and restart CUPS. Full write-up: `docs-Wine-Adobe-PS-Fix.md`.
 
+### 7.4 konica206uri unexpected-disable fix (2026-10-08)
+
+Both `konica206uri`/`-ppd` went `disabled/Paused` at `08/Oct 13:14:19`
+(paired `Pause-Printer`, no GETs, no backend error) and stayed stale across
+reboot (no boot `check` on Puppy, udev `add` never refired). Full timeline,
+log excerpts, and rejected hypotheses: `INVESTIGATION-2026-10-08-konica206uri-disable.md`.
+Fix live in `konica-cups-watch.sh` + `konica-cups-watch-boot.sh`, installed
+by `install_usb_queue_watch()`: `cupsdisable -r konica-usb-absent` MARKER so
+manual pauses stay distinct, 2s settle + USB-reality reconcile, boot
+wait-for-cupsd (`/root/Startup` on Puppy, systemd unit where present), cron
+`*/5 check` self-heal, bounded log `/var/log/konica-cups-watch.log`.
+
 ## 8. Related local files (this machine)
 
 - Current Option A backup: `/home/vinod/konica-pappl-backup-20260818-1532/` and

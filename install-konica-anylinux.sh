@@ -549,123 +549,51 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# 8. Konica USB presence watcher (systemd + udev + CUPS)
+# 8. Konica USB presence watcher (udev + boot check + cron guard)
+# Hardened 2026-10-08: MARKER reason, settle, foreign-pause guard, logging.
+# See INVESTIGATION-2026-10-08-konica206uri-disable.md.
+# Works on systemd AND non-systemd (Puppy) hosts.
 # ---------------------------------------------------------------------------
 install_usb_queue_watch() {
-    # The watcher uses a systemd boot service plus udev add/remove events.
-    # On non-systemd distributions, leave the core retrofit untouched.
-    if [ ! -d /run/systemd/system ] || ! command -v systemctl >/dev/null 2>&1; then
-        warn "systemd not detected; skipping Konica USB queue watcher."
-        return 0
-    fi
-
-    command -v udevadm >/dev/null 2>&1 || {
-        warn "udevadm not found; skipping Konica USB queue watcher."
-        return 0
-    }
-
     log "Installing Konica USB queue watcher..."
 
-    install -d /usr/local/bin /etc/udev/rules.d /etc/systemd/system
+    install -d /usr/local/bin /etc/udev/rules.d
 
-    cat > /usr/local/bin/konica-cups-watch.sh <<'EOF'
-#!/bin/bash
-# Sync CUPS queue state with Konica 206i USB presence.
-# Called by udev on device add/remove and by systemd at boot (check).
-QUEUES="konica206uri konica206uri-ppd"
-VENDOR="132b"
-PRODUCT="232b"
+    install -m 755 "$REPO_DIR/konica-cups-watch.sh" /usr/local/bin/konica-cups-watch.sh
+    install -m 644 "$REPO_DIR/99-konica206uri-cups.rules" /etc/udev/rules.d/99-konica206uri-cups.rules
 
-PATH="/usr/bin:/usr/sbin:/bin:/sbin"
-export PATH
-
-command -v lpstat >/dev/null 2>&1 || exit 0
-command -v cupsenable >/dev/null 2>&1 || exit 0
-command -v cupsdisable >/dev/null 2>&1 || exit 0
-
-konica_present() {
-  local v p
-  for v in /sys/bus/usb/devices/*/idVendor; do
-    [ -f "$v" ] || continue
-    [ "$(cat "$v" 2>/dev/null)" = "$VENDOR" ] || continue
-    p="${v%/idVendor}/idProduct"
-    if [ -f "$p" ] && [ "$(cat "$p" 2>/dev/null)" = "$PRODUCT" ]; then
-      return 0
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload-rules || warn "could not reload udev rules"
     fi
-  done
-  return 1
-}
 
-enable_queues() {
-  local q
-  for q in $QUEUES; do
-    lpstat -p "$q" >/dev/null 2>&1 || continue
-    cupsenable "$q" >/dev/null 2>&1
-  done
-}
-
-disable_queues() {
-  local q
-  for q in $QUEUES; do
-    lpstat -p "$q" >/dev/null 2>&1 || continue
-    cupsdisable "$q" >/dev/null 2>&1
-  done
-}
-
-case "${1:-check}" in
-  add|on)
-    enable_queues
-    ;;
-  remove|off)
-    disable_queues
-    ;;
-  check)
-    if konica_present; then
-      enable_queues
+    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+        install -d /etc/systemd/system
+        install -m 644 "$REPO_DIR/konica-cups-watch.service" /etc/systemd/system/konica-cups-watch.service
+        systemctl daemon-reload || warn "could not reload systemd manager"
+        # The queues are created before this function is called. The boot check
+        # therefore reconciles the actual queue state with USB presence.
+        systemctl enable --now konica-cups-watch.service \
+            || warn "could not enable/start konica-cups-watch.service"
     else
-      disable_queues
+        # Puppy / sysvinit: boot-time reconcile via /root/Startup + cron guard.
+        if [ -d /root/Startup ]; then
+            install -m 755 "$REPO_DIR/konica-cups-watch-boot.sh" /root/Startup/konica-cups-watch-boot.sh
+        fi
     fi
-    ;;
-  *)
-    echo "Usage: $0 {add|remove|on|off|check}" >&2
-    exit 2
-    ;;
-esac
-EOF
-    chmod 755 /usr/local/bin/konica-cups-watch.sh
 
-    cat > /etc/udev/rules.d/99-konica206uri-cups.rules <<'EOF'
-# Konica Minolta 206 USB presence handling.
-# PRODUCT is used because it is present on both add and remove events.
-ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{PRODUCT}=="132b/232b/100", RUN+="/usr/local/bin/konica-cups-watch.sh add"
-ACTION=="remove", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{PRODUCT}=="132b/232b/100", RUN+="/usr/local/bin/konica-cups-watch.sh remove"
-EOF
-    chmod 644 /etc/udev/rules.d/99-konica206uri-cups.rules
+    # Cron self-heal every 5 min (reconciles against real USB state; lost or
+    # reordered udev events recover automatically). Idempotent.
+    if command -v crontab >/dev/null 2>&1; then
+        tmpcron="$(mktemp)"
+        crontab -l 2>/dev/null > "$tmpcron" || true
+        if ! grep -q "konica-cups-watch.sh check" "$tmpcron"; then
+            echo "*/5 * * * * /usr/local/bin/konica-cups-watch.sh check" >> "$tmpcron"
+            crontab "$tmpcron" || warn "could not install cron guard"
+        fi
+        rm -f "$tmpcron"
+    fi
 
-    cat > /etc/systemd/system/konica-cups-watch.service <<'EOF'
-[Unit]
-Description=Konica Minolta 206 CUPS USB presence watcher
-After=cups.service legacy-printer-app.service
-Wants=cups.service
-ConditionPathExists=/usr/local/bin/konica-cups-watch.sh
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/konica-cups-watch.sh check
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    chmod 644 /etc/systemd/system/konica-cups-watch.service
-
-    udevadm control --reload-rules || warn "could not reload udev rules"
-    systemctl daemon-reload || die "could not reload systemd manager"
-
-    # The queues are created before this function is called. The boot check
-    # therefore reconciles the actual queue state with USB presence.
-    systemctl enable --now konica-cups-watch.service \
-        || die "could not enable/start konica-cups-watch.service"
+    /usr/local/bin/konica-cups-watch.sh check >/dev/null 2>&1 || true
 }
 
 # ---------------------------------------------------------------------------
