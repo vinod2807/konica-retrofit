@@ -759,6 +759,78 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# 9c. Stuck-job watchdog (konica-stuck-watch.sh)
+#
+# Recovers helper jobs wedged in processing with zero log activity for
+# 10+ min: cancel first, restart legacy-printer-app if still stuck next
+# run. Progressing jobs (e.g. 200-300 page PDFs) are never touched.
+# Scheduling branches on init system so one installer covers both:
+#   systemd hosts (Ubuntu/Debian/Fedora/Arch): systemd timer every 2 min.
+#   non-systemd hosts (Puppy/sysvinit/containers): cron every 2 min.
+# Either branch is idempotent; the systemd branch removes the cron file
+# left by a manual install so the two never double-run.
+# ---------------------------------------------------------------------------
+install_stuck_watch() {
+    log "Installing stuck-job watchdog..."
+    install -d /usr/local/sbin
+    install -m 755 "$REPO_DIR/konica-stuck-watch.sh" /usr/local/sbin/konica-stuck-watch.sh
+    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+        cat > /etc/systemd/system/konica-stuck-watch.service <<'EOF'
+[Unit]
+Description=Konica Minolta 206 stuck-job watchdog
+After=legacy-printer-app.service cups.service
+Wants=legacy-printer-app.service
+ConditionPathExists=/usr/local/sbin/konica-stuck-watch.sh
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/konica-stuck-watch.sh
+EOF
+        cat > /etc/systemd/system/konica-stuck-watch.timer <<'EOF'
+[Unit]
+Description=Run Konica stuck-job watchdog every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+        chmod 644 /etc/systemd/system/konica-stuck-watch.service \
+                  /etc/systemd/system/konica-stuck-watch.timer
+        rm -f /etc/cron.d/konica-stuck-watch
+        systemctl daemon-reload || warn "could not reload systemd manager"
+        systemctl enable --now konica-stuck-watch.timer \
+            || warn "could not enable/start konica-stuck-watch.timer"
+    else
+        if [ -d /etc/cron.d ]; then
+            cat > /etc/cron.d/konica-stuck-watch <<'EOF'
+# Konica retrofit: recover helper jobs wedged with zero progress (see konica-stuck-watch.sh).
+*/2 * * * * root /usr/local/sbin/konica-stuck-watch.sh
+EOF
+            chmod 644 /etc/cron.d/konica-stuck-watch
+        elif command -v crontab >/dev/null 2>&1; then
+            (crontab -l 2>/dev/null | grep -v konica-stuck-watch.sh || true; \
+             echo "*/2 * * * * /usr/local/sbin/konica-stuck-watch.sh") | crontab - \
+                || warn "could not install crontab entry for stuck-watch"
+        else
+            warn "no systemd, /etc/cron.d, or crontab found;"
+            warn "run /usr/local/sbin/konica-stuck-watch.sh every 2 min manually"
+            return 0
+        fi
+        if command -v service >/dev/null 2>&1; then
+            service cron reload 2>/dev/null || service crond reload 2>/dev/null || true
+        fi
+        if command -v pidof >/dev/null 2>&1 && pidof crond >/dev/null 2>&1; then
+            kill -HUP "$(pidof crond | awk '{print $1}')" 2>/dev/null || true
+        fi
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # 9. Create the PAPPL queue + CUPS passthrough queue
 # ---------------------------------------------------------------------------
 create_queues() {
@@ -1000,6 +1072,7 @@ main() {
     install_wineps_convs
     install_wineps_guard
     install_usb_queue_watch
+    install_stuck_watch
     fix_contexts
     verify
 }
