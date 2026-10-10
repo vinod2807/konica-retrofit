@@ -1,0 +1,4 @@
+Konica Minolta bizhub 206
+Generic PCL6/PCL XL test
+
+If this page prints correctly, PCL6 is working.

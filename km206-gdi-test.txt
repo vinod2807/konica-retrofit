@@ -1,0 +1,4 @@
+Konica Minolta bizhub 206
+Stock GDI test
+
+If this prints, stock GDI works.

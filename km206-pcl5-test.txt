@@ -1,0 +1,4 @@
+Konica Minolta bizhub 206
+Generic PCL5 test
+
+If this page prints correctly, PCL5 is working.
