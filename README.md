@@ -557,6 +557,12 @@ wait-for-cupsd (`/root/Startup` on Puppy, systemd unit where present),
 periodic `check` self-heal via systemd timer (`konica-cups-watch.timer`,
 cron `*/5` fallback on non-systemd hosts), bounded log `/var/log/konica-cups-watch.log`.
 
+A later fix (2026-11-04) makes `disable_queues` skip any queue that has a
+pending or processing job. Pausing such a queue makes CUPS put the job back to
+pending, and the later `cupsenable` restarts it from page 1 — a second full
+print. PAPPL already pauses its own queue and retries the USB device, so
+leaving busy queues alone is safe and avoids the duplicate.
+
 ## 8. Related local files (this machine)
 
 - Current Option A backup: `/home/vinod/konica-pappl-backup-20260818-1532/` and

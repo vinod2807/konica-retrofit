@@ -77,6 +77,14 @@ disable_queues() {
       enabled) ;;
       *) continue ;; # already disabled: leave reason intact
     esac
+    # Pausing a queue that has a job makes CUPS set the job back to pending,
+    # and re-enabling the queue later restarts it from page 1 - a second full
+    # print. Leave queues with work alone; PAPPL already pauses its own queue
+    # and retries the USB device until the printer returns.
+    if lpstat -o "$q" 2>/dev/null | grep -q .; then
+      log "disable $q skipped (queue has a job)"
+      continue
+    fi
     if cupsdisable -r "$MARKER" "$q" >/dev/null 2>&1; then
       log "disable $q ok (reason=$MARKER)"
     else
