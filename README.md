@@ -557,11 +557,47 @@ wait-for-cupsd (`/root/Startup` on Puppy, systemd unit where present),
 periodic `check` self-heal via systemd timer (`konica-cups-watch.timer`,
 cron `*/5` fallback on non-systemd hosts), bounded log `/var/log/konica-cups-watch.log`.
 
-A later fix (2026-11-04) makes `disable_queues` skip any queue that has a
-pending or processing job. Pausing such a queue makes CUPS put the job back to
-pending, and the later `cupsenable` restarts it from page 1 — a second full
-print. PAPPL already pauses its own queue and retries the USB device, so
-leaving busy queues alone is safe and avoids the duplicate.
+### 7.5 Duplicate prints after USB re-enumeration (2026-11-04)
+
+**Symptom.** One CUPS job printed twice, usually after the printer slept and
+re-appeared on USB. The PAPPL log showed two `Starting print job` entries for a
+single CUPS job.
+
+**Root cause.** `konica-cups-watch.sh` paused queues with `cupsdisable` when
+the USB device disappeared and re-enabled them when it returned (and every five
+minutes via the timer). On a queue with a processing job, `cupsdisable` makes
+CUPS set that job back to `PENDING` (`cupsdStopPrinter`); the later
+`cupsenable` (`cupsdStartPrinter` → `IPP_PRINTER_IDLE`) restarts it from page 1,
+so the document is submitted to PAPPL a second time.
+
+A second, independent cause lives in the consumer's queue scripts, not here:
+running `lpadmin -P` on every USB add makes CUPS restart an active job because
+a PPD change sets `need_restart_job`. See the Fedora image's
+`docs/PRINTER.md` for that fix.
+
+**Fix.** `disable_queues()` now skips any queue that has a pending or
+processing job:
+
+```bash
+if lpstat -o "$q" 2>/dev/null | grep -q .; then
+  log "disable $q skipped (queue has a job)"
+  continue
+fi
+```
+
+PAPPL already pauses its own queue and retries the USB device, so leaving the
+CUPS proxy queue enabled while the printer is away is safe. The marker-based
+`cupsdisable -r konica-usb-absent` / `cupsenable` behaviour is unchanged for
+idle queues.
+
+**Verification.** On a PAPPL file device with a 200-page PDF, disabling and
+re-enabling the queue mid-job produced two PAPPL jobs before the change and
+exactly one after it. The regression check is to run the watcher while a job is
+printing and confirm the log says `skipped (queue has a job)`.
+
+**Consumers.** `fedora-bootc-konica206` builds
+`/usr/local/bin/konica-cups-watch.sh` from this file at image-build time (it
+only rewrites the `QUEUES=` line), so a build from `main` inherits this fix.
 
 ## 8. Related local files (this machine)
 
