@@ -133,32 +133,3 @@ to change a mechanical binding on a GDI printer — unless:
 Server on `system` renderer (default). `builtin` retained behind
 `KONICA_PDF_RENDERER=builtin`. No paper proof required for further
 offline analysis if the source PDF is available.
-
-## Resolution (2026-11-13)
-
-The 2026-10-07 rotation fix was measured while the vendor `245igdirf` was the
-encoder stage. The application later switched that stage to `konica-native`,
-which derives `DUPLEX`/`BINDING` from the raster header and the job options
-alone - it never sees the PPD's back-side setting, which `245igdirf` received on
-its command line. The pre-rotation kept running and now double-compensates.
-
-Straight A/B on an A4 orientation marker sheet (2 pages, duplex long edge, flip
-about the left long edge), one sheet per configuration, same queue and printer:
-
-| job | `*cupsBackSide` the app read | back page on paper |
-|---|---|---|
-| 323 | `Rotated` (app pre-rotated page 2) | upside down |
-| 325 | `Normal` (no pre-rotation) | upright, both sides top-to-bottom |
-
-Fixed upstream in `konica206-native-alpine` (30c0739): "no rotation" is the
-compiled-in default, and the install scripts derive a `cupsBackSide: Normal`
-PPD copy for the app. The vendor and legacy PPDs - including the ones in this
-repository - keep `Rotated`, because the CUPS/legacy queues still need it.
-`fedora-bootc-konica206` (fa1bf12) carries its own PPD override for the image,
-which it needs: the Legacy Printer Application stages a readable Rotated PPD
-into `/var/lib`, so the application's compiled-in default never applies there.
-
-Hypothesis 3 above (duplex-clutch carry-over) is still unexcluded: job 324, run
-with the old configuration immediately after the failing 323, printed upright.
-If a back page comes out inverted again, repeat the job before changing any
-configuration.
