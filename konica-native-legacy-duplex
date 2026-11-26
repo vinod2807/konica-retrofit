@@ -1,0 +1,21 @@
+#!/bin/bash
+# konica206uri duplex fix: rotate even (back-side) pages 180 degrees in the
+# CUPS raster before the vendor encoder.  The 206 prints the back upside down
+# for long-edge duplex unless the back bitmap is pre-rotated.  Job attributes
+# and the device's DUPLEX/BINDING commands are left untouched.
+job=$1; user=$2; title=$3; copies=$4; opts=$5; shift 5
+
+tmp=$(mktemp /var/tmp/konica-raster.XXXXXX.ras) || exec /usr/bin/konica-native "$job" "$user" "$title" "$copies" "$opts" "$@"
+src=${1:-}
+if [ -n "$src" ] && [ -f "$src" ]; then
+  python3 /usr/local/bin/konica-rotate-backside.py "$src" "$tmp" || cp "$src" "$tmp"
+else
+  cat > "$tmp.in"
+  python3 /usr/local/bin/konica-rotate-backside.py "$tmp.in" "$tmp" || cp "$tmp.in" "$tmp"
+  rm -f "$tmp.in"
+fi
+set -- "$tmp"
+/usr/bin/konica-native "$job" "$user" "$title" "$copies" "$opts" "$@"
+rc=$?
+rm -f "$tmp"
+exit $rc

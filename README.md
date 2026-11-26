@@ -80,6 +80,16 @@ Both queues default to **A4 + one-sided (simplex)** and both render simplex and
 duplex correctly. `konica206uri` is the CUPS-3.0-proof path and is preferred;
 `KONICA_MINOLTA_206` uses the classic usb backend and breaks under CUPS 3.0.
 
+**Duplex back-side fix (`konica206uri`, open encoder only).** The installer
+ships `konica-rotate-backside.py` and `konica-native-legacy-duplex`. When the
+PAPPL driver PPD's `*cupsFilter` uses `/usr/bin/konica-native` (rather than the
+vendor `245igdirf`), the installer points that filter at the wrapper and sets
+`*cupsBackSide: Normal`: the wrapper rotates even (back-side) pages 180° for
+`Duplex=1, Tumble=0` jobs, which is required for upright long-edge duplex on
+this printer. Simplex and short-edge jobs are left untouched. Installs that
+keep the vendor `245igdirf` filter retain the shipped `*cupsBackSide: Rotated`
+and are not modified — that filter receives the back-side setting itself.
+
 ### Architecture (the PAPPL path)
 
 ```

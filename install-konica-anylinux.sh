@@ -362,6 +362,35 @@ build_backend() {
 # ---------------------------------------------------------------------------
 # 7. Install PPDs, ensure script, media-default helper
 # ---------------------------------------------------------------------------
+# konica206uri duplex back-side fix (only for the open konica-native encoder).
+# The vendor 245igdirf is told the PPD's *cupsBackSide on its command line, so
+# it must keep the shipped "Rotated" value.  The open /usr/bin/konica-native
+# encoder has no PPD back-side logic at all; on that path no stage rotates the
+# back page and long-edge duplex prints upside down.  Install a raster filter
+# wrapper that rotates even pages 180 degrees for Duplex=1/Tumble=0 jobs.
+install_duplex_backside_fix() {
+    local helper="$REPO_DIR/konica-rotate-backside.py"
+    local wrapper="$REPO_DIR/konica-native-legacy-duplex"
+    local ppd="$PAPPL_PPD_DIR/KonicaMinolta-206-fullbleed.ppd"
+
+    [ -f "$helper" ] && [ -f "$wrapper" ] || {
+        warn "duplex back-side helper missing in repo; skipping"
+        return 0
+    }
+    install -m 0755 "$helper" "$wrapper" /usr/local/bin/
+
+    if [ -f "$ppd" ] && grep -q '^\*cupsFilter:.*konica-native' "$ppd"; then
+        sed -i -E \
+            -e 's#^\*cupsFilter: .*#*cupsFilter: "application/vnd.cups-raster 0 /usr/local/bin/konica-native-legacy-duplex"#' \
+            -e 's#^\*cupsBackSide:.*#*cupsBackSide: Normal#' "$ppd"
+        grep -qxF '*cupsFilter: "application/vnd.cups-raster 0 /usr/local/bin/konica-native-legacy-duplex"' "$ppd" || \
+            die "failed to patch $ppd"
+        log "konica-native encoder: back-side raster rotation enabled (long-edge duplex)"
+    else
+        log "vendor 245igdirf encoder: keeping *cupsBackSide: Rotated (no raster rotation)"
+    fi
+}
+
 install_ppds() {
     log "Installing retrofit PPDs into $PAPPL_PPD_DIR..."
     install -d "$PAPPL_PPD_DIR"
@@ -1083,6 +1112,7 @@ main() {
     install_driver
     build_backend
     install_ppds
+    install_duplex_backside_fix
     install_ensure_script
     install_systemd
     if wait_for_app; then
